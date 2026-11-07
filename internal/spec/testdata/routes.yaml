@@ -1,0 +1,187 @@
+version: 1
+prefix: /api/auth
+routes:
+  # ── hosted (no tenant needed) ─────────────────────────────────────────
+  - { id: hosted.login, method: GET, path: /login, group: hosted, level: basic, needs: [],
+      query: { return_to: {type: string}, prompt: {type: string}, locale: {type: string}, method: {type: string} },
+      success: { redirect: true }, sets: [flow] }
+  - { id: hosted.callback, method: GET, path: /callback, group: hosted, level: basic, needs: [],
+      query: { state: {type: string}, code: {type: string}, error: {type: string} },
+      success: { redirect: true }, sets: [session, again], clears: [flow, again], text: true }
+  - { id: hosted.logout, method: GET, path: /logout, group: hosted, level: basic, needs: [],
+      success: { redirect: true }, clears: [session] }
+  - { id: hosted.logout_post, method: POST, path: /logout, group: hosted, level: basic, needs: [],
+      success: { redirect: true }, clears: [session] }
+  - { id: hosted.refresh, method: GET, path: /refresh, group: hosted, level: basic, needs: [],
+      query: { return_to: {type: string} }, success: { redirect: true }, sets: [session], clears: [session], text: true }
+  - { id: hosted.account, method: GET, path: /account, group: hosted, level: basic, needs: [],
+      query: { return_to: {type: string}, locale: {type: string} }, success: { redirect: true } }
+  # ── session ───────────────────────────────────────────────────────────
+  - { id: session.get, method: GET, path: /session, group: session, level: basic, needs: [],
+      success: { status: 200, fields: { session: "object?", status: string } }, sets: [session], clears: [session] }
+  - { id: session.sign_out, method: POST, path: /sign-out, group: session, level: basic, needs: [tenant, crosssite],
+      success: { status: 200, fields: { status: string } }, clears: [session] }
+  - { id: session.list, method: GET, path: /me/sessions, group: session, level: basic, needs: [tenant, session],
+      success: { status: 200, fields: { sessions: array } } }
+  - { id: session.end_all, method: POST, path: /me/sessions/end, group: session, level: basic, needs: [tenant, session, crosssite, json],
+      success: { status: 200, fields: { status: string } }, clears: [session] }
+  # ── other ─────────────────────────────────────────────────────────────
+  - { id: other.methods, method: GET, path: /methods, group: other, level: basic, needs: [tenant],
+      success: { status: 200, fields: { providers: array, passwordSignIn: boolean, signUp: boolean, magicLink: boolean, passkey: boolean, passkeyHere: boolean, passkeyOnCauthy: boolean, sso: boolean, organization: "object?", persistentSessions: "boolean?", legal: "object?", captchaSiteKey: "string?", password: "object?" } } }
+  - { id: other.look, method: GET, path: /look, group: other, level: basic, needs: [tenant],
+      success: { status: 200 } }
+  # ── sign-in and sign-up (own screens) ─────────────────────────────────
+  - { id: sign-in.email, method: POST, path: /sign-in/email, group: sign-in, level: basic, needs: [tenant, crosssite, json],
+      body: { email: {type: email, required: true}, password: {type: string, required: true}, remember: {type: boolean} },
+      success: { status: 200, fields: { status: string, session: "object?", method: "string?" } }, sets: [session, step] }
+  - { id: sign-in.mfa, method: POST, path: /sign-in/mfa, group: sign-in, level: basic, needs: [tenant, step, crosssite, json],
+      body: { code: {type: string, required: true} },
+      success: { status: 200, fields: { status: string, session: object } }, sets: [session], clears: [step] }
+  - { id: sign-in.mfa_methods, method: POST, path: /sign-in/mfa/methods, group: sign-in, level: basic, needs: [tenant, step, crosssite, json],
+      success: { status: 200, fields: { status: string, totp: boolean, phone: "object?", push: "object?", email: "object?" } } }
+  - { id: sign-in.mfa_send, method: POST, path: /sign-in/mfa/send, group: sign-in, level: basic, needs: [tenant, step, crosssite, json],
+      success: { status: 200, fields: { status: string, sentTo: string, channel: string } } }
+  - { id: sign-in.mfa_email, method: POST, path: /sign-in/mfa/email, group: sign-in, level: basic, needs: [tenant, step, crosssite, json],
+      success: { status: 200, fields: { status: string, sentTo: string } } }
+  - { id: sign-in.mfa_push, method: POST, path: /sign-in/mfa/push, group: sign-in, level: basic, needs: [tenant, step, crosssite, json],
+      success: { status: 200, fields: { status: string, number: number } } }
+  - { id: sign-in.mfa_push_finish, method: POST, path: /sign-in/mfa/push/finish, group: sign-in, level: basic, needs: [tenant, step, crosssite, json],
+      success: { status: 200, fields: { status: string, session: object } }, sets: [session], clears: [step] }
+  - { id: sign-in.mfa_push_events, method: GET, path: /sign-in/mfa/push/events, group: sign-in, level: basic, needs: [tenant, step],
+      success: { status: 200 }, stream: true }
+  - { id: sign-in.sign_up, method: POST, path: /sign-up/email, group: sign-in, level: basic, needs: [tenant, crosssite, json],
+      body: { name: {type: string}, email: {type: email, required: true}, password: {type: string, required: true}, organization: {type: string}, acceptLegal: {type: boolean}, consents: {type: object} },
+      success: { status: 200, fields: { status: string, session: "object?", email: "string?" } }, sets: [session],
+      errors: [weak_password] }
+  - { id: sign-in.forgot_password, method: POST, path: /forgot-password, group: sign-in, level: basic, needs: [tenant, crosssite, json],
+      body: { email: {type: email, required: true} }, success: { status: 200, fields: { status: string } } }
+  - { id: sign-in.reset_password, method: POST, path: /reset-password, group: sign-in, level: basic, needs: [tenant, crosssite, json],
+      body: { token: {type: string, required: true}, password: {type: string, required: true} },
+      success: { status: 200, fields: { status: string } }, errors: [invalid_token, weak_password] }
+  - { id: sign-in.verify_email, method: POST, path: /verify-email, group: sign-in, level: basic, needs: [tenant, crosssite, json],
+      body: { token: {type: string, required: true} },
+      success: { status: 200, fields: { status: string, session: "object?" } }, sets: [session], errors: [invalid_token] }
+  - { id: sign-in.invitation, method: GET, path: /invitation, group: sign-in, level: basic, needs: [tenant],
+      query: { token: {type: string, required: true} },
+      success: { status: 200, fields: { status: string, invitation: object } }, errors: [invalid_token] }
+  - { id: sign-in.invitation_accept, method: POST, path: /invitation/accept, group: sign-in, level: basic, needs: [tenant, crosssite, json],
+      body: { token: {type: string, required: true}, password: {type: string, required: true} },
+      success: { status: 200, fields: { status: string, session: "object?", method: "string?" } }, sets: [session, step], errors: [invalid_token, weak_password] }
+  - { id: sign-in.magic_link, method: POST, path: /sign-in/magic-link, group: sign-in, level: basic, needs: [tenant, crosssite, json],
+      body: { email: {type: email, required: true}, create: {type: boolean}, returnTo: {type: string}, remember: {type: boolean} },
+      success: { status: 200, fields: { status: string } }, sets: [step], errors: [not_configured] }
+  - { id: sign-in.email_code, method: POST, path: /sign-in/email-code, group: sign-in, level: basic, needs: [tenant, step, crosssite, json],
+      body: { code: {type: string, required: true} },
+      success: { status: 200, fields: { status: string, session: object, returnTo: string } }, sets: [session], clears: [step] }
+  - { id: sign-in.magic_link_verify, method: POST, path: /sign-in/magic-link/verify, group: sign-in, level: basic, needs: [tenant, crosssite, json],
+      body: { token: {type: string, required: true}, remember: {type: boolean} },
+      success: { status: 200, fields: { status: string, session: object } }, sets: [session], errors: [invalid_token] }
+  - { id: sign-in.passkey_begin, method: POST, path: /sign-in/passkey/begin, group: sign-in, level: basic, needs: [tenant, crosssite, json],
+      body: { email: {type: email}, remember: {type: boolean} },
+      success: { status: 200, fields: { status: string, options: object } }, sets: [step] }
+  - { id: sign-in.passkey_finish, method: POST, path: /sign-in/passkey/finish, group: sign-in, level: basic, needs: [tenant, step, crosssite, json],
+      body: { credential: {type: object, required: true}, remember: {type: boolean} },
+      success: { status: 200, fields: { status: string, session: object } }, sets: [session], clears: [step], errors: [passkey_failed] }
+  - { id: sign-in.google_one_tap_begin, method: POST, path: /sign-in/google-one-tap/begin, group: sign-in, level: basic, needs: [tenant, crosssite, json],
+      success: { status: 200, fields: { status: string, clientId: string, nonce: string } } }
+  - { id: sign-in.google_one_tap, method: POST, path: /sign-in/google-one-tap, group: sign-in, level: basic, needs: [tenant, crosssite, json],
+      body: { credential: {type: string, required: true}, remember: {type: boolean} },
+      success: { status: 200, fields: { status: string, session: object } }, sets: [session] }
+  - { id: sign-in.anonymous, method: POST, path: /sign-in/anonymous, group: sign-in, level: basic, needs: [tenant, crosssite, json], deprecated: true,
+      success: { status: 200, fields: { status: string, session: object } }, sets: [session] }
+  - { id: sign-in.social, method: GET, path: "/sign-in/social/{provider}", group: sign-in, level: basic, needs: [tenant],
+      query: { return_to: {type: string}, remember: {type: boolean} }, success: { redirect: true }, sets: [step], failures: redirect }
+  - { id: sign-in.social_callback, method: GET, path: "/callback/{provider}", group: sign-in, level: basic, needs: [tenant, step],
+      query: { state: {type: string}, code: {type: string}, error: {type: string} }, success: { redirect: true }, sets: [session], clears: [step], failures: redirect }
+  - { id: sign-in.sso, method: GET, path: /sign-in/sso, group: sign-in, level: basic, needs: [tenant],
+      query: { email: {type: string}, connection: {type: string}, return_to: {type: string}, remember: {type: boolean} }, success: { redirect: true }, sets: [step], failures: redirect }
+  - { id: sign-in.sso_callback, method: GET, path: /sso/callback, group: sign-in, level: basic, needs: [tenant, step],
+      query: { code: {type: string}, error: {type: string} }, success: { redirect: true }, sets: [session], clears: [step], failures: redirect }
+  - { id: sign-in.sso_discover, method: POST, path: /sign-in/sso/discover, group: sign-in, level: basic, needs: [tenant, crosssite, json],
+      body: { email: {type: email, required: true} },
+      success: { status: 200, fields: { status: string, connection: "object?" } } }
+  # ── me (account) ──────────────────────────────────────────────────────
+  - { id: me.get, method: GET, path: /me, group: me, level: basic, needs: [tenant, session],
+      success: { status: 200, fields: { account: object } } }
+  - { id: me.save, method: POST, path: /me, group: me, level: basic, needs: [tenant, session, crosssite, json],
+      body: { name: {type: string, required: true} }, success: { status: 200, fields: { status: string, account: object } }, sets: [session] }
+  - { id: me.password, method: POST, path: /me/password, group: me, level: basic, needs: [tenant, session, crosssite, json],
+      body: { password: {type: string, required: true}, newPassword: {type: string, required: true} },
+      success: { status: 200, fields: { status: string, signedIn: boolean } }, sets: [session], clears: [session], errors: [weak_password] }
+  - { id: me.email, method: POST, path: /me/email, group: me, level: basic, needs: [tenant, session, crosssite, json],
+      body: { email: {type: email, required: true}, password: {type: string} },
+      success: { status: 200, fields: { status: string, email: string } }, errors: [email_unchanged, email_taken, step_up_required] }
+  - { id: me.legal, method: GET, path: /me/legal, group: me, level: basic, needs: [tenant, session],
+      success: { status: 200, fields: { pending: array } } }
+  - { id: me.legal_accept, method: POST, path: /me/legal/accept, group: me, level: basic, needs: [tenant, session, crosssite, json],
+      body: { kinds: {type: array} }, success: { status: 200, fields: { status: string } } }
+  - { id: me.mfa_factors, method: GET, path: /me/mfa/factors, group: me, level: basic, needs: [tenant, session],
+      success: { status: 200, fields: { totp: boolean, phone: "object?", phoneChannels: array } } }
+  - { id: me.mfa_setup, method: POST, path: /me/mfa/setup, group: me, level: basic, needs: [tenant, session, crosssite, json],
+      body: { password: {type: string} },
+      success: { status: 200, fields: { status: string, secret: string, otpauthUri: string, qr: string } }, errors: [step_up_required] }
+  - { id: me.mfa_verify, method: POST, path: /me/mfa/verify, group: me, level: basic, needs: [tenant, session, crosssite, json],
+      body: { code: {type: string, required: true} }, success: { status: 200, fields: { status: string, recoveryCodes: array } } }
+  - { id: me.mfa_phone, method: POST, path: /me/mfa/phone, group: me, level: basic, needs: [tenant, session, crosssite, json],
+      body: { phone: {type: string, required: true}, channel: {type: string}, password: {type: string} },
+      success: { status: 200, fields: { status: string, sentTo: string, channel: string } }, errors: [step_up_required, validation_error] }
+  - { id: me.mfa_phone_verify, method: POST, path: /me/mfa/phone/verify, group: me, level: basic, needs: [tenant, session, crosssite, json],
+      body: { code: {type: string, required: true} }, success: { status: 200, fields: { status: string, recoveryCodes: array } } }
+  - { id: me.mfa_phone_remove, method: POST, path: /me/mfa/phone/remove, group: me, level: basic, needs: [tenant, session, crosssite, json],
+      body: { password: {type: string} }, success: { status: 200, fields: { status: string } }, errors: [step_up_required] }
+  - { id: me.mfa_disable, method: POST, path: /me/mfa/disable, group: me, level: basic, needs: [tenant, session, crosssite, json],
+      body: { password: {type: string} }, success: { status: 200, fields: { status: string } }, errors: [step_up_required] }
+  - { id: me.mfa_recovery_codes, method: POST, path: /me/mfa/recovery-codes, group: me, level: basic, needs: [tenant, session, crosssite, json],
+      body: { password: {type: string} }, success: { status: 200, fields: { status: string, recoveryCodes: array } }, errors: [step_up_required] }
+  - { id: me.identities, method: GET, path: /me/identities, group: me, level: basic, needs: [tenant, session],
+      success: { status: 200, fields: { identities: array } } }
+  - { id: me.identities_link, method: GET, path: "/me/identities/link/{provider}", group: me, level: basic, needs: [tenant, session],
+      query: { return_to: {type: string} }, success: { redirect: true }, sets: [step], failures: redirect }
+  - { id: me.identities_unlink, method: POST, path: /me/identities/unlink, group: me, level: basic, needs: [tenant, session, crosssite, json],
+      body: { provider: {type: string, required: true} }, success: { status: 200, fields: { status: string, provider: string } }, errors: [invalid_provider] }
+  - { id: me.passkeys, method: GET, path: /me/passkeys, group: me, level: basic, needs: [tenant, session],
+      success: { status: 200, fields: { passkeys: array } } }
+  - { id: me.passkeys_add_begin, method: POST, path: /me/passkeys/add/begin, group: me, level: basic, needs: [tenant, session, crosssite, json],
+      body: { password: {type: string}, kind: {type: string} }, success: { status: 200, fields: { status: string, options: object } }, sets: [step], errors: [step_up_required] }
+  - { id: me.passkeys_add_finish, method: POST, path: /me/passkeys/add/finish, group: me, level: basic, needs: [tenant, session, step, crosssite, json],
+      body: { credential: {type: object, required: true}, name: {type: string} }, success: { status: 200, fields: { status: string, passkey: object } }, clears: [step], errors: [passkey_failed] }
+  - { id: me.passkeys_remove, method: POST, path: /me/passkeys/remove, group: me, level: basic, needs: [tenant, session, crosssite, json],
+      body: { id: {type: uuid, required: true} }, success: { status: 200, fields: { status: string, id: string } }, errors: [invalid_passkey] }
+  - { id: me.agents, method: GET, path: /me/agents, group: me, level: basic, needs: [tenant, session],
+      success: { status: 200, fields: { agents: array } } }
+  - { id: me.agents_disconnect, method: POST, path: /me/agents/disconnect, group: me, level: basic, needs: [tenant, session, crosssite, json],
+      body: { id: {type: uuid, required: true} }, success: { status: 200, fields: { status: string, id: string } }, errors: [invalid_agent] }
+  - { id: me.upgrade, method: POST, path: /me/upgrade, group: me, level: basic, needs: [tenant, session, crosssite, json], deprecated: true,
+      body: { name: {type: string}, email: {type: email, required: true}, password: {type: string, required: true} },
+      success: { status: 200, fields: { status: string, session: object } }, sets: [session] }
+  - { id: me.upgrade_social, method: GET, path: "/me/upgrade/social/{provider}", group: me, level: basic, needs: [tenant, session], deprecated: true,
+      query: { return_to: {type: string} }, success: { redirect: true }, sets: [step], failures: redirect }
+  # ── organizations ─────────────────────────────────────────────────────
+  - { id: organizations.list, method: GET, path: /me/organizations, group: organizations, level: basic, needs: [tenant, session],
+      query: { system: {type: string} }, success: { status: 200, fields: { organizations: array } } }
+  - { id: organizations.members, method: GET, path: /me/organizations/members, group: organizations, level: basic, needs: [tenant, session],
+      query: { id: {type: uuid, required: true} }, success: { status: 200, fields: { members: array } }, errors: [invalid_organization] }
+  - { id: organizations.roles, method: GET, path: /me/organizations/roles, group: organizations, level: basic, needs: [tenant, session],
+      query: { id: {type: uuid, required: true} }, success: { status: 200, fields: { roles: array } }, errors: [invalid_organization] }
+  - { id: organizations.check, method: POST, path: /me/organizations/check, group: organizations, level: basic, needs: [session, crosssite, json],
+      body: { organizationId: {type: uuid, required: true}, resource: {type: string, required: true}, action: {type: string, required: true}, attributes: {type: object}, resourceId: {type: string}, ownerId: {type: string} },
+      success: { status: 200, fields: { status: string, allowed: boolean, reason: "string?" } }, errors: [invalid_organization] }
+  - { id: organizations.rename, method: POST, path: /me/organizations/rename, group: organizations, level: basic, needs: [tenant, session, crosssite, json],
+      body: { organizationId: {type: uuid, required: true}, name: {type: string, required: true} },
+      success: { status: 200, fields: { status: string, organization: object } }, errors: [invalid_organization] }
+  - { id: organizations.archive, method: POST, path: /me/organizations/archive, group: organizations, level: basic, needs: [tenant, session, crosssite, json],
+      body: { organizationId: {type: uuid, required: true} }, success: { status: 200, fields: { status: string, organizationId: string } }, errors: [invalid_organization] }
+  - { id: organizations.delete, method: POST, path: /me/organizations/delete, group: organizations, level: basic, needs: [tenant, session, crosssite, json],
+      body: { organizationId: {type: uuid, required: true} }, success: { status: 200, fields: { status: string, organizationId: string } }, errors: [invalid_organization] }
+  - { id: organizations.members_add, method: POST, path: /me/organizations/members/add, group: organizations, level: basic, needs: [tenant, session, crosssite, json],
+      body: { organizationId: {type: uuid, required: true}, email: {type: email, required: true}, role: {type: string, required: true}, name: {type: string}, locale: {type: string} },
+      success: { status: 200, fields: { status: string, member: object } }, errors: [invalid_organization, invalid_role, member_exists] }
+  - { id: organizations.members_role, method: POST, path: /me/organizations/members/role, group: organizations, level: basic, needs: [tenant, session, crosssite, json],
+      body: { organizationId: {type: uuid, required: true}, userId: {type: uuid, required: true}, role: {type: string, required: true} },
+      success: { status: 200, fields: { status: string, userId: string, role: string } }, errors: [invalid_organization, invalid_member, invalid_role] }
+  - { id: organizations.members_remove, method: POST, path: /me/organizations/members/remove, group: organizations, level: basic, needs: [tenant, session, crosssite, json],
+      body: { organizationId: {type: uuid, required: true}, userId: {type: uuid, required: true} },
+      success: { status: 200, fields: { status: string, userId: string } }, errors: [invalid_organization, invalid_member] }
+  - { id: organizations.members_invite, method: POST, path: /me/organizations/members/invite, group: organizations, level: basic, needs: [tenant, session, crosssite, json],
+      body: { organizationId: {type: uuid, required: true}, userId: {type: uuid, required: true}, locale: {type: string} },
+      success: { status: 200, fields: { status: string, userId: string } }, errors: [invalid_organization, invalid_member] }
