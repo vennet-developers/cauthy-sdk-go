@@ -19,8 +19,10 @@ lint:
 test:
 	go test -race -count=1 ./...
 
+# The last lines only, and the test's own exit status: a pipe into tail would
+# hide a failure (and make 3.81 has no .SHELLFLAGS for pipefail).
 vectors:
-	go test -count=1 -run TestVectors -v . | tail -3
+	@out=$$(go test -count=1 -run TestVectors -v . 2>&1); status=$$?; printf '%s\n' "$$out" | tail -3; exit $$status
 
 spec:
 	SPEC_DIR=$(SPEC_DIR) sh scripts/check-spec.sh
