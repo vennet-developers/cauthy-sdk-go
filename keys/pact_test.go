@@ -3,6 +3,7 @@ package keys
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -144,5 +145,78 @@ func TestHandlerServesTheSetCacheable(t *testing.T) {
 	var set JWKS
 	if w.Code != 200 || w.Header().Get("Cache-Control") != "public, max-age=300" || json.Unmarshal(w.Body.Bytes(), &set) != nil || len(set.Keys) != 1 {
 		t.Fatalf("%d %v %s", w.Code, w.Header(), w.Body)
+	}
+}
+
+// signsWithAPublishedKey fails when the key that signs is not published.
+func signsWithAPublishedKey(t *testing.T, k *Keys) string {
+	t.Helper()
+	ctx := context.Background()
+	kid, _, err := k.Current(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, err := k.Published(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, jwk := range set.Keys {
+		if jwk["kid"] == kid {
+			return kid
+		}
+	}
+	t.Fatalf("%s signs but is not published: %+v", kid, set)
+	return ""
+}
+
+func TestRotateTwiceInsideSixMinutes(t *testing.T) {
+	clk := &clock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	k := New(Memory(), sealRing(t, testRoot), clk.now)
+	ctx := context.Background()
+	old := signsWithAPublishedKey(t, k)
+	clk.add(time.Hour)
+	next, err := k.Rotate(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clk.add(3 * time.Minute)
+	if _, err := k.Rotate(ctx); !errors.Is(err, ErrRotateTooSoon) {
+		t.Fatalf("a second rotation before the new key signs: want ErrRotateTooSoon, got %v", err)
+	}
+	if kid := signsWithAPublishedKey(t, k); kid != old {
+		t.Fatalf("%s signs, want the old key until the new one ripens", kid)
+	}
+	clk.add(3 * time.Minute)
+	if kid := signsWithAPublishedKey(t, k); kid != next {
+		t.Fatalf("%s signs, want the new key once ripe", kid)
+	}
+	if _, err := k.Rotate(ctx); err != nil {
+		t.Fatalf("once the newest signs, rotating is allowed: %v", err)
+	}
+	signsWithAPublishedKey(t, k)
+}
+
+func TestNeverSignsWithAKeyNoLongerPublished(t *testing.T) {
+	// Three kept keys, the two newest unripe: another instance rotated twice.
+	clk := &clock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	k := New(Memory(), sealRing(t, testRoot), clk.now)
+	ctx := context.Background()
+	first := signsWithAPublishedKey(t, k)
+	clk.add(time.Hour)
+	list, _ := k.store.List(ctx)
+	second, err := k.make(ctx, &list[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	clk.add(time.Minute)
+	third, err := k.make(ctx, &second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	k.mu.Lock()
+	k.remembered = nil
+	k.mu.Unlock()
+	if kid := signsWithAPublishedKey(t, k); kid != second.Kid || kid == first || kid == third.Kid {
+		t.Fatalf("%s signs, want the older of the two published (%s)", kid, second.Kid)
 	}
 }

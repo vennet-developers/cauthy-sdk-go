@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -135,12 +136,15 @@ func (k *Keys) kept(ctx context.Context) ([]StoredKey, error) {
 	return newestFirst(list), nil
 }
 
-// pick is the key that signs: the newest published long enough. When none
-// is (the first minutes of the first key), the oldest, read again shortly
-// so every instance lands on the same one.
+// pick is the key that signs: the newest published long enough, among the
+// published ones only (the first MaxPublished). When neither is ripe (the
+// first minutes of the first key, or a store another instance rotated
+// twice), the older of them, read again shortly so every instance lands on
+// the same one. A key no longer published never signs.
 func (k *Keys) pick(kept []StoredKey) (StoredKey, time.Time) {
 	now := k.now()
-	for _, key := range kept {
+	published := kept[:min(len(kept), MaxPublished)]
+	for _, key := range published {
 		if now.Sub(at(key)) >= SignAfter {
 			until := now.Add(currentTTL)
 			// A newer key ripens later: read again then, not after the usual while.
@@ -150,7 +154,7 @@ func (k *Keys) pick(kept []StoredKey) (StoredKey, time.Time) {
 			return key, until
 		}
 	}
-	return kept[len(kept)-1], now.Add(settlingTTL)
+	return published[len(published)-1], now.Add(settlingTTL)
 }
 
 func (k *Keys) open(key StoredKey) (*rsa.PrivateKey, bool, error) {
@@ -217,8 +221,14 @@ func (k *Keys) Published(ctx context.Context) (JWKS, error) {
 	return out, nil
 }
 
+// ErrRotateTooSoon: the newest key does not sign yet (it is younger than
+// SignAfter). Rotating again then would publish a third key or retire the
+// one that signs; wait until the newest signs.
+var ErrRotateTooSoon = errors.New("cauthy: the newest key does not sign yet; rotate again once it is older than keys.SignAfter")
+
 // Rotate makes a new key, published at once and signing once SignAfter has
-// passed. It answers the new key's id.
+// passed. It answers the new key's id, or ErrRotateTooSoon while the newest
+// key is younger than SignAfter.
 func (k *Keys) Rotate(ctx context.Context) (string, error) {
 	k.makeMu.Lock()
 	defer k.makeMu.Unlock()
@@ -229,6 +239,9 @@ func (k *Keys) Rotate(ctx context.Context) (string, error) {
 	var after *StoredKey
 	if len(list) > 0 {
 		after = &newestFirst(list)[0]
+		if k.now().Sub(at(*after)) < SignAfter {
+			return "", ErrRotateTooSoon
+		}
 	}
 	made, err := k.make(ctx, after)
 	if err != nil {
