@@ -84,3 +84,15 @@ func TestParseJWKSSkipsMalformedMembersAndHonoursKeyOps(t *testing.T) {
 		}
 	}
 }
+
+func TestParseJWKSReadsKeysByItsExactName(t *testing.T) {
+	testKeys(t)
+	for _, raw := range []string{`{"KEYS":[` + setOf("a")[9:], `{"Keys":[` + setOf("a")[9:]} {
+		if _, err := ParseJWKS([]byte(raw)); err == nil {
+			t.Errorf("%.12s…: want an error", raw)
+		}
+	}
+	if _, err := ParseJWKS([]byte(setOf("a"))); err != nil {
+		t.Fatal(err)
+	}
+}

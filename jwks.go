@@ -69,11 +69,14 @@ func verifies(m map[string]any) bool {
 // unknown kid. Two usable keys with one kid, or no usable key, make the set
 // invalid (rule K6).
 func ParseJWKS(raw []byte) (*StaticKeys, error) {
-	var set struct {
-		Keys []any `json:"keys"`
-	}
-	if err := json.Unmarshal(raw, &set); err != nil {
+	// "keys" by its exact name: Go's struct decoding would also take "KEYS".
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &top); err != nil {
 		return nil, fmt.Errorf("cauthy: JWKS: %w", err)
+	}
+	var set struct{ Keys []any }
+	if err := json.Unmarshal(top["keys"], &set.Keys); err != nil {
+		return nil, fmt.Errorf("cauthy: JWKS: keys: %w", err)
 	}
 	k := &StaticKeys{byKid: map[string]*rsa.PublicKey{}}
 	for _, item := range set.Keys {
