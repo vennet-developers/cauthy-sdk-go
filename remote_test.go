@@ -263,3 +263,37 @@ func TestRemoteKeysDeadlineBeforeTheFirstSetIsSaidApart(t *testing.T) {
 		t.Fatalf("an ended ctx before the first set: %v", err)
 	}
 }
+
+func TestRemoteKeysBoundAFetcherThatIgnoresItsContext(t *testing.T) {
+	testKeys(t)
+	src := &source{gate: make(chan struct{})}
+	defer close(src.gate)
+	src.set(setOf("a"), false)
+	r := NewRemoteKeys(src.fetch, 0, nil)
+	r.timeout = 100 * time.Millisecond
+	done := make(chan error, 1)
+	go func() { _, err := r.Key(context.Background(), "a"); done <- err }()
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrNoKeySet) {
+			t.Fatalf("want ErrNoKeySet, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a fetcher that ignores its context held the caller past the fetch timeout")
+	}
+}
+
+func TestHTTPFetcherRefusesAPlainHTTPHost(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { hits.Add(1) }))
+	defer srv.Close()
+	for _, url := range []string{"http://auth.example.com/.well-known/jwks.json", "ftp://auth.example.com/jwks", "://bad"} {
+		if _, _, err := HTTPFetcher(url, nil)(context.Background()); err == nil || !strings.Contains(err.Error(), "https") {
+			t.Errorf("%s: want an https error, got %v", url, err)
+		}
+	}
+	_, _, _ = HTTPFetcher(srv.URL, nil)(context.Background())
+	if hits.Load() != 1 {
+		t.Fatalf("http on 127.0.0.1 is allowed: %d hits", hits.Load())
+	}
+}

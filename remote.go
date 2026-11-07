@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,6 +41,7 @@ type Fetcher func(ctx context.Context) (jwks []byte, maxAge time.Duration, err e
 type RemoteKeys struct {
 	fetch    Fetcher
 	cooldown time.Duration
+	timeout  time.Duration // FetchTimeout; a test shortens it
 	now      func() time.Time
 
 	mu      sync.Mutex
@@ -59,7 +61,7 @@ func NewRemoteKeys(fetch Fetcher, cooldown time.Duration, now func() time.Time) 
 	if now == nil {
 		now = time.Now
 	}
-	return &RemoteKeys{fetch: fetch, cooldown: cooldown, now: now}
+	return &RemoteKeys{fetch: fetch, cooldown: cooldown, timeout: FetchTimeout, now: now}
 }
 
 // Loaded reports whether a set has ever been fetched.
@@ -123,26 +125,35 @@ func (r *RemoteKeys) gaveUp(ctx context.Context) error {
 // refresh fetches and installs the set, then closes ch. A panic in the
 // fetcher counts as a failed fetch, so ch always closes.
 func (r *RemoteKeys) refresh(ctx context.Context, ch chan struct{}) {
-	var (
+	type result struct {
 		set    *StaticKeys
 		maxAge time.Duration
-	)
-	func() {
+	}
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
+	defer cancel()
+	got := make(chan result, 1)
+	// The fetch runs on its own goroutine, so the timeout holds even for a
+	// Fetcher that ignores its context: it is left to finish on its own.
+	go func() {
+		var out result
 		defer func() {
-			if recover() != nil {
-				set = nil
-			}
+			recover()
+			got <- out
 		}()
-		ctx, cancel := context.WithTimeout(ctx, FetchTimeout)
-		defer cancel()
 		raw, age, err := r.fetch(ctx)
 		if err != nil {
 			return
 		}
 		if parsed, err := ParseJWKS(raw); err == nil {
-			set, maxAge = parsed, age
+			out = result{parsed, age}
 		}
 	}()
+	var res result
+	select {
+	case res = <-got:
+	case <-ctx.Done():
+	}
+	set, maxAge := res.set, res.maxAge
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -158,8 +169,13 @@ func (r *RemoteKeys) refresh(ctx context.Context, ch chan struct{}) {
 
 // HTTPFetcher fetches the JWKS at url: GET, no redirects, a 200 only, at
 // most MaxJWKSBytes, within FetchTimeout; max-age from Cache-Control. A nil
-// client is a plain one.
+// client is a plain one. A url that is not https (http only for localhost,
+// 127.0.0.1, *.localhost and *.test) is never fetched: every call answers an
+// error.
 func HTTPFetcher(url string, client *http.Client) Fetcher {
+	if err := checkJWKSURL(url); err != nil {
+		return func(context.Context) ([]byte, time.Duration, error) { return nil, 0, err }
+	}
 	c := &http.Client{Timeout: FetchTimeout}
 	if client != nil {
 		copied := *client
@@ -188,6 +204,15 @@ func HTTPFetcher(url string, client *http.Client) Fetcher {
 		}
 		return raw, maxAgeOf(res.Header.Get("Cache-Control")), nil
 	}
+}
+
+// checkJWKSURL refuses a JWKS url that is not https, as the issuer is.
+func checkJWKSURL(raw string) error {
+	u, err := neturl.Parse(raw)
+	if err != nil || u.Host == "" || (u.Scheme != "https" && !(u.Scheme == "http" && localHost(u.Hostname()))) {
+		return fmt.Errorf("cauthy: the JWKS url must be https (http only for localhost, *.localhost and *.test)")
+	}
+	return nil
 }
 
 // maxAgeOf reads max-age from a Cache-Control value; zero when absent.
