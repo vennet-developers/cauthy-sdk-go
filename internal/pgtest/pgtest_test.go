@@ -10,7 +10,9 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"fmt"
 	"os"
+	"sync"
 	"testing"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -54,4 +56,43 @@ func TestPostgresStoreOnARealPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	storetest.Behaves(t, s)
+}
+
+// Instances starting together each try AddFirst with a key of their own: one
+// key, and only one, is kept.
+func TestAddFirstKeepsOneKeyUnderARace(t *testing.T) {
+	db, table := open(t)
+	db.SetMaxOpenConns(16)
+	s, err := keys.PostgresTable(db, table)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for round := range 20 {
+		if _, err := db.Exec("DELETE FROM " + table); err != nil {
+			t.Fatal(err)
+		}
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for i := range 12 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				k := keys.StoredKey{Kid: fmt.Sprintf("k-%d-%d", round, i), PublicJWK: map[string]any{"kty": "RSA", "n": "AQAB", "e": "AQAB"},
+					Sealed: "sealed", CreatedAt: "2026-01-01T00:00:00.000Z"}
+				if err := s.AddFirst(context.Background(), k); err != nil {
+					t.Error(err)
+				}
+			}()
+		}
+		close(start)
+		wg.Wait()
+		list, err := s.List(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(list) != 1 {
+			t.Fatalf("round %d: %d keys kept, want 1", round, len(list))
+		}
+	}
 }

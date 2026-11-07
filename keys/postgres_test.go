@@ -23,6 +23,8 @@ type recorder struct {
 	mu   sync.Mutex
 	rows map[string][3]any // kid → public_jwk, sealed, created_at
 	sent []string
+	txs  []string // BEGIN, COMMIT and ROLLBACK, in order, with what ran inside
+	inTx bool
 }
 
 func (r *recorder) Open(string) (driver.Conn, error) { return &conn{r}, nil }
@@ -36,13 +38,35 @@ type conn struct{ r *recorder }
 
 func (c *conn) Prepare(string) (driver.Stmt, error) { return nil, errors.New("no prepare") }
 func (c *conn) Close() error                        { return nil }
-func (c *conn) Begin() (driver.Tx, error)           { return nil, errors.New("no transactions") }
+func (c *conn) Begin() (driver.Tx, error) {
+	c.r.mu.Lock()
+	defer c.r.mu.Unlock()
+	c.r.txs, c.r.inTx = append(c.r.txs, "BEGIN"), true
+	return tx{c.r}, nil
+}
+
+type tx struct{ r *recorder }
+
+func (t tx) Commit() error   { return t.end("COMMIT") }
+func (t tx) Rollback() error { return t.end("ROLLBACK") }
+func (t tx) end(word string) error {
+	t.r.mu.Lock()
+	defer t.r.mu.Unlock()
+	t.r.txs, t.r.inTx = append(t.r.txs, word), false
+	return nil
+}
 
 func (c *conn) ExecContext(_ context.Context, q string, args []driver.NamedValue) (driver.Result, error) {
 	r := c.r
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.sent = append(r.sent, q)
+	if r.inTx {
+		r.txs = append(r.txs, q)
+	}
+	if len(args) == 0 {
+		return driver.RowsAffected(0), nil
+	}
 	kid := args[0].Value.(string)
 	switch {
 	case strings.HasPrefix(q, "INSERT") && strings.Contains(q, "WHERE NOT EXISTS"):
@@ -101,6 +125,16 @@ func TestPostgresStore(t *testing.T) {
 	for _, q := range rec.sent {
 		if !strings.Contains(q, "cauthy_pact_keys") {
 			t.Fatalf("a statement not on the table: %s", q)
+		}
+	}
+	// Behaves calls AddFirst twice: each one is its own transaction.
+	if len(rec.txs) != 8 {
+		t.Fatalf("AddFirst must insert in a transaction under the table's advisory lock: %q", rec.txs)
+	}
+	for i := 0; i < 8; i += 4 {
+		if rec.txs[i] != "BEGIN" || rec.txs[i+1] != "SELECT pg_advisory_xact_lock(hashtext('cauthy_pact_keys'))" ||
+			!strings.Contains(rec.txs[i+2], "WHERE NOT EXISTS") || rec.txs[i+3] != "COMMIT" {
+			t.Fatalf("AddFirst must insert in a transaction under the table's advisory lock: %q", rec.txs)
 		}
 	}
 	if _, err := keys.PostgresTable(db, "keys; DROP TABLE users"); err == nil {

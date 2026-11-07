@@ -132,11 +132,29 @@ func (p *postgres) Add(ctx context.Context, k StoredKey) error {
 		k.Kid, jsonOf(k.PublicJWK), k.Sealed, k.CreatedAt)
 }
 
-// AddFirst is one statement: a key another instance committed a moment ago
-// is seen.
-func (p *postgres) AddFirst(ctx context.Context, k StoredKey) error {
-	return p.exec(ctx, `INSERT INTO {table} (kid, public_jwk, sealed, created_at) SELECT $1, $2::jsonb, $3, $4::timestamptz WHERE NOT EXISTS (SELECT 1 FROM {table}) ON CONFLICT (kid) DO NOTHING`,
-		k.Kid, jsonOf(k.PublicJWK), k.Sealed, k.CreatedAt)
+// AddFirst inserts inside a transaction that first takes the table's
+// transaction-scoped advisory lock: instances starting together queue on it,
+// so the second sees the first's key and keeps none of its own. Without the
+// lock, two NOT EXISTS checks under READ COMMITTED can both pass.
+func (p *postgres) AddFirst(ctx context.Context, k StoredKey) (err error) {
+	tx, err := p.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	// The table name is a checked plain identifier (tableRE).
+	if _, err = tx.ExecContext(ctx, fmt.Sprintf(`SELECT pg_advisory_xact_lock(hashtext('%s'))`, p.table)); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, strings.ReplaceAll(`INSERT INTO {table} (kid, public_jwk, sealed, created_at) SELECT $1, $2::jsonb, $3, $4::timestamptz WHERE NOT EXISTS (SELECT 1 FROM {table}) ON CONFLICT (kid) DO NOTHING`, "{table}", p.table),
+		k.Kid, jsonOf(k.PublicJWK), k.Sealed, k.CreatedAt); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (p *postgres) Update(ctx context.Context, k StoredKey) error {

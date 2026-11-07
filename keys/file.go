@@ -16,6 +16,10 @@ import (
 // machine. Production keeps its key in its database, where every instance
 // reads the same one. The file is the one @cauthyhq/node's fileKeyStore
 // writes.
+//
+// It is for one process: writes in this process are serialized, but two
+// processes sharing the file can each make a first key. Several instances
+// share Postgres instead.
 func File(path string) Store { return &file{path: path} }
 
 type file struct {
