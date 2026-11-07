@@ -10,11 +10,13 @@ package keys
 import (
 	"crypto/hkdf"
 	"crypto/sha256"
+	"unicode/utf8"
 
 	"github.com/vennet-developers/cauthy-sdk-go/internal/cfgerr"
 )
 
-// MinRootKey is the least a root key may be: 32 characters, as 32 random
+// MinRootKey is the least a root key may be: 32 characters (counted as
+// characters, not bytes), as 32 random
 // bytes in base64url are 43.
 const MinRootKey = 32
 
@@ -41,10 +43,10 @@ func derive(root, purpose string) []byte {
 // Derive is the key rings of root, and of previous while the root is being
 // rotated (PACT_ROOT_KEY_PREVIOUS; "" when not).
 func Derive(root, previous string) (*Rings, error) {
-	if len(root) < MinRootKey {
+	if utf8.RuneCountInString(root) < MinRootKey {
 		return nil, cfgerr.New("the root key (PACT_ROOT_KEY) must be at least %d characters: 32 random bytes, e.g. openssl rand -base64 32", MinRootKey)
 	}
-	if previous != "" && len(previous) < MinRootKey {
+	if previous != "" && utf8.RuneCountInString(previous) < MinRootKey {
 		return nil, cfgerr.New("the previous root key (PACT_ROOT_KEY_PREVIOUS) must be at least %d characters", MinRootKey)
 	}
 	roots := []string{root}

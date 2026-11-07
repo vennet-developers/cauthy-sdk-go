@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -48,5 +49,18 @@ func TestDeriveRotatingAndRefusals(t *testing.T) {
 		if _, err := Derive(c[0], c[1]); err == nil {
 			t.Fatalf("%q %q: want an error", c[0], c[1])
 		}
+	}
+}
+
+func TestDeriveCountsCharactersNotBytes(t *testing.T) {
+	short := strings.Repeat("ñ", 20) // 40 bytes, 20 characters
+	if _, err := Derive(short, ""); err == nil {
+		t.Fatal("20 characters must be refused, whatever their bytes")
+	}
+	if _, err := Derive(strings.Repeat("a", 40), short); err == nil {
+		t.Fatal("a previous root key of 20 characters must be refused")
+	}
+	if _, err := Derive(strings.Repeat("ñ", MinRootKey), ""); err != nil {
+		t.Fatal(err)
 	}
 }
