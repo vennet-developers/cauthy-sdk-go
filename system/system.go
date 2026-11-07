@@ -130,9 +130,15 @@ func New(o Options) (*Client, error) {
 		return nil, cfgerr.New("the system client's timeout must be positive")
 	}
 	c := &Client{o: o, issuer: strings.TrimRight(o.Issuer, "/"), http: o.HTTPClient, timeout: o.Timeout, now: o.Now}
-	if c.http == nil {
-		c.http = &http.Client{}
+	// Never follow a redirect: the secret, the assertion and the token go to
+	// Cauthy's address and nowhere else. A redirect answers as a refusal.
+	hc := &http.Client{}
+	if c.http != nil {
+		copied := *c.http
+		hc = &copied
 	}
+	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	c.http = hc
 	if c.timeout == 0 {
 		c.timeout = DefaultTimeout
 	}
@@ -312,7 +318,10 @@ func (c *Client) Token(ctx context.Context) (string, error) {
 	if json.Unmarshal(raw, &t) != nil || t.AccessToken == "" {
 		return "", &APIError{Status: 502, Code: "unavailable", Message: "Cauthy answered no token"}
 	}
-	c.held, c.until = t.AccessToken, c.now().Add(time.Duration(t.ExpiresIn)*time.Second-skew)
+	// Kept until skew before it runs out, and at least half its life, so a
+	// short-lived token is not asked for again on every call.
+	life := time.Duration(t.ExpiresIn) * time.Second
+	c.held, c.until = t.AccessToken, c.now().Add(max(life/2, life-skew))
 	return c.held, nil
 }
 
@@ -345,6 +354,9 @@ func (c *Client) Request(ctx context.Context, method, path string, body, out any
 // new token when Cauthy took the first back early (401). It answers the
 // body of a 2xx, or the refusal.
 func (c *Client) send(ctx context.Context, method, path string, body any, extra ...http.Header) ([]byte, error) {
+	if err := checkPath(path); err != nil {
+		return nil, err
+	}
 	var payload []byte
 	if body != nil {
 		var err error
@@ -385,4 +397,16 @@ func (c *Client) send(ctx context.Context, method, path string, body any, extra 
 		return nil, nil
 	}
 	return raw, nil
+}
+
+// checkPath refuses a path with a "." or ".." segment: an id of "." or ".."
+// passes url.PathEscape unchanged and would name another route.
+func checkPath(path string) error {
+	p, _, _ := strings.Cut(path, "?")
+	for _, seg := range strings.Split(p, "/") {
+		if seg == "." || seg == ".." {
+			return fmt.Errorf("cauthy: %q is not an id", seg)
+		}
+	}
+	return nil
 }
