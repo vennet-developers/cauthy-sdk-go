@@ -1,0 +1,7 @@
+.conformance/
+conformance-report.json
+.cauthy/
+*.test
+coverage.out
+.DS_Store
+.env*
