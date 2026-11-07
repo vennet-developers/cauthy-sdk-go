@@ -11,8 +11,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # go.mod says 1.24, the oldest supported; 1.26 and 1.27 are current.
+        module: [., ./examples/acme-crm, ./gin, ./echo, ./fiber]
+        # The core says go 1.24, the oldest supported. Gin and Echo need 1.26
+        # (their fixed golang.org/x/net does), so they skip 1.24.
         go: ['1.24', '1.26', '1.27']
+        exclude:
+          - module: ./gin
+            go: '1.24'
+          - module: ./echo
+            go: '1.24'
+    defaults:
+      run:
+        working-directory: ${{ matrix.module }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
@@ -24,10 +34,12 @@ jobs:
         run: test -z "$(gofmt -l .)"
       - run: go vet ./...
       - name: staticcheck
+        # staticcheck v0.8.2 needs Go 1.26 or later.
         if: matrix.go == '1.27'
         run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
       - run: go test -race -count=1 ./...
       - name: the core module has no dependency
+        if: matrix.module == '.'
         run: test ! -f go.sum && ! grep -q '^require' go.mod
 
   spec:
@@ -42,12 +54,23 @@ jobs:
           path: spec
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          go-version-file: go.mod
+          go-version: '1.27'
           cache: false
       - name: the vendored vectors and route table are the pinned spec's
         run: SPEC_DIR=spec sh scripts/check-spec.sh
-      - name: token vectors, every one must agree
-        run: go test -count=1 -run TestVectors -v .
+      - name: token vectors and the route table, every one must agree
+        run: go test -count=1 -run 'TestVectors|TestEveryRouteOfTheTableIsServed' -v .
+      - name: auth-bff conformance, level strict
+        run: sh scripts/conformance.sh
+        env:
+          SPEC_DIR: ${{ github.workspace }}/spec
+          LEVEL: strict
+          REPORT: ${{ runner.temp }}/conformance-strict.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: conformance-strict
+          path: ${{ runner.temp }}/conformance-strict.json
 
   postgres:
     # The Postgres key store on a real Postgres: internal/pgtest is its own

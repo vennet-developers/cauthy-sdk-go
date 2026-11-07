@@ -1,31 +1,39 @@
 # Every check CI runs, runnable on a laptop. SPEC_DIR is a cauthy-sdk-spec
-# checkout (default ../cauthy-sdk-spec). Plan 4B extends it to every module.
+# checkout (default ../cauthy-sdk-spec) at the pinned tag (conformance/v0.1.1).
 SPEC_DIR ?= ../cauthy-sdk-spec
+MODULES := . ./examples/acme-crm ./gin ./echo ./fiber ./internal/pgtest
 STATICCHECK := honnef.co/go/tools/cmd/staticcheck@v0.8.2
 
-.PHONY: all fmt vet lint test vectors spec pgtest
+.PHONY: all fmt vet lint test vectors spec conformance tidy pgtest
 
-all: fmt vet lint test vectors
+all: fmt vet lint test vectors conformance
 
 fmt:
 	@test -z "$$(gofmt -l .)" || { gofmt -l .; echo "run gofmt -w ."; exit 1; }
 
 vet:
-	go vet ./...
+	@for m in $(MODULES); do (cd $$m && go vet ./...) || exit 1; done
 
 lint:
-	go run $(STATICCHECK) ./...
+	@for m in $(MODULES); do (cd $$m && go run $(STATICCHECK) ./...) || exit 1; done
 
+# internal/pgtest skips without CAUTHY_TEST_POSTGRES_DSN (see pgtest).
 test:
-	go test -race -count=1 ./...
+	@for m in $(MODULES); do (cd $$m && go test -race -count=1 ./...) || exit 1; done
 
-# The last lines only, and the test's own exit status: a pipe into tail would
+# The last lines only, and the tests' own exit status: a pipe into tail would
 # hide a failure (and make 3.81 has no .SHELLFLAGS for pipefail).
 vectors:
-	@out=$$(go test -count=1 -run TestVectors -v . 2>&1); status=$$?; printf '%s\n' "$$out" | tail -3; exit $$status
+	@out=$$(go test -count=1 -run 'TestVectors|TestEveryRouteOfTheTableIsServed' -v . 2>&1); status=$$?; printf '%s\n' "$$out" | tail -3; exit $$status
 
 spec:
 	SPEC_DIR=$(SPEC_DIR) sh scripts/check-spec.sh
+
+conformance:
+	SPEC_DIR=$(SPEC_DIR) LEVEL=strict sh scripts/conformance.sh
+
+tidy:
+	@for m in $(MODULES); do (cd $$m && go mod tidy) || exit 1; done
 
 # The Postgres key store on a real Postgres; skipped without
 # CAUTHY_TEST_POSTGRES_DSN (CI's postgres job sets it).

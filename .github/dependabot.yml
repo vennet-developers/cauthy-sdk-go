@@ -1,11 +1,7 @@
 version: 2
 updates:
   - package-ecosystem: gomod
-    directory: /
-    schedule:
-      interval: weekly
-  - package-ecosystem: gomod
-    directory: /internal/pgtest
+    directories: [/, /examples/acme-crm, /gin, /echo, /fiber, /internal/pgtest]
     schedule:
       interval: weekly
   - package-ecosystem: github-actions
