@@ -119,3 +119,21 @@ func TestAKeySetNeverFetchedIsSaidApart(t *testing.T) {
 		t.Fatalf("want unknown_kid wrapping ErrNoKeySet, got %v", err)
 	}
 }
+
+func TestVerifyWithAllowSystemWantsANamedSystem(t *testing.T) {
+	allow := verifier(t, func(c *VerifierConfig) { c.AllowSystem = true })
+	for _, mark := range []any{false, 0, "", []string{"acme-billing"}, map[string]any{}} {
+		tok := token(t, map[string]any{"sys": mark, "email": nil})
+		if _, err := allow.VerifyAt(context.Background(), tok, now); reasonOf(err) != InvalidClaim {
+			t.Errorf("sys=%v: want invalid_claim, got %v", mark, err)
+		}
+	}
+	id, err := allow.VerifyAt(context.Background(), token(t, map[string]any{"sys": "acme-billing", "email": nil}), now)
+	if err != nil || !id.IsSystem || id.System != "acme-billing" {
+		t.Fatalf("%+v %v", id, err)
+	}
+	id, err = allow.VerifyAt(context.Background(), token(t, nil), now)
+	if err != nil || id.IsSystem || id.System != "" {
+		t.Fatalf("a person's token: %+v %v", id, err)
+	}
+}

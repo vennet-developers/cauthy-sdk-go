@@ -8,6 +8,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log/slog"
 	"slices"
 	"strconv"
 	"strings"
@@ -16,6 +18,8 @@ import (
 
 // Identity is what a verified token says.
 type Identity struct {
+	// Issuer is the token's iss: the configured Issuer or one of Issuers.
+	Issuer string
 	// Subject is the person (sub). For a system's own token, the id of the
 	// client it signs in as.
 	Subject string
@@ -31,12 +35,63 @@ type Identity struct {
 	Roles []string
 	// Anonymous is a guest's token (only with AllowAnonymous).
 	Anonymous bool
-	// System is the sys claim of a system's own token (only with AllowSystem).
+	// IsSystem is a system's own token (only with AllowSystem).
+	IsSystem bool
+	// System is the sys claim of a system's own token: the system's name.
+	// Empty unless IsSystem.
 	System string
 	// ExpiresAt is exp, UTC.
 	ExpiresAt time.Time
-	// Token is the token as it arrived, to pass on.
+	// Token is the token as it arrived, to pass on. String, GoString and
+	// LogValue never show it.
 	Token string
+}
+
+// redacted is Identity without its token, for printing.
+type redacted struct {
+	Issuer, Subject, Tenant, Email string
+	EmailVerified                  bool
+	Roles                          []string
+	Anonymous, IsSystem            bool
+	System                         string
+	ExpiresAt                      time.Time
+	Token                          string
+}
+
+func (id Identity) redacted() redacted {
+	r := redacted{id.Issuer, id.Subject, id.Tenant, id.Email, id.EmailVerified, id.Roles, id.Anonymous, id.IsSystem, id.System, id.ExpiresAt, ""}
+	if id.Token != "" {
+		r.Token = "[redacted]"
+	}
+	return r
+}
+
+// String prints the identity without its token.
+func (id Identity) String() string { return fmt.Sprintf("%+v", id.redacted()) }
+
+// GoString is String, for %#v.
+func (id Identity) GoString() string { return "cauthy.Identity" + id.String() }
+
+// LogValue logs the identity without its token.
+func (id Identity) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("issuer", id.Issuer), slog.String("subject", id.Subject), slog.String("tenant", id.Tenant),
+		slog.String("email", id.Email), slog.Bool("email_verified", id.EmailVerified), slog.Any("roles", id.Roles),
+		slog.Bool("anonymous", id.Anonymous), slog.Bool("is_system", id.IsSystem), slog.String("system", id.System),
+		slog.Time("expires_at", id.ExpiresAt),
+	)
+}
+
+// maxKidInDetail caps how much of a token's kid a refusal quotes.
+const maxKidInDetail = 64
+
+// clipKid is kid as a refusal's detail quotes it: at most maxKidInDetail
+// characters, so an attacker's kid cannot flood the log.
+func clipKid(kid string) string {
+	if len(kid) <= maxKidInDetail {
+		return kid
+	}
+	return kid[:maxKidInDetail] + "…"
 }
 
 var b64 = base64.RawURLEncoding.Strict()
@@ -102,9 +157,9 @@ func (v *Verifier) VerifyAt(ctx context.Context, token string, now time.Time) (*
 	key, err := v.keys.Key(ctx, kid)
 	switch {
 	case errors.Is(err, ErrWeakKey):
-		return nil, refuse(WeakKey, "kid %q is smaller than %d bits", kid, MinKeyBits)
+		return nil, refuse(WeakKey, "kid %q is smaller than %d bits", clipKid(kid), MinKeyBits)
 	case err != nil:
-		e := refuse(UnknownKid, "kid %q: %v", kid, err)
+		e := refuse(UnknownKid, "kid %q: %v", clipKid(kid), err)
 		e.cause = err
 		return nil, e
 	}
@@ -112,7 +167,7 @@ func (v *Verifier) VerifyAt(ctx context.Context, token string, now time.Time) (*
 	// R6 — the signature, over the segments exactly as received.
 	digest := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
 	if rsa.VerifyPKCS1v15(key, crypto.SHA256, digest[:], sig) != nil {
-		return nil, refuse(BadSignature, "the signature does not match kid %q", kid)
+		return nil, refuse(BadSignature, "the signature does not match kid %q", clipKid(kid))
 	}
 
 	// Claims are read only now.
@@ -132,7 +187,7 @@ func (v *Verifier) VerifyAt(ctx context.Context, token string, now time.Time) (*
 	}
 
 	// R8 — claim types.
-	c, err := readClaims(claims)
+	c, err := readClaims(claims, v.cfg.AllowSystem)
 	if err != nil {
 		return nil, err
 	}
@@ -175,8 +230,8 @@ func (v *Verifier) VerifyAt(ctx context.Context, token string, now time.Time) (*
 		roles = []string{}
 	}
 	return &Identity{
-		Subject: c.sub, Tenant: c.tid, Email: c.email, EmailVerified: c.emailVerified, Roles: roles,
-		Anonymous: c.anon, System: c.sysName, ExpiresAt: time.Unix(int64(c.exp), 0).UTC(), Token: token,
+		Issuer: c.iss, Subject: c.sub, Tenant: c.tid, Email: c.email, EmailVerified: c.emailVerified, Roles: roles,
+		Anonymous: c.anon, IsSystem: c.sys, System: c.sysName, ExpiresAt: time.Unix(int64(c.exp), 0).UTC(), Token: token,
 	}, nil
 }
 
@@ -259,9 +314,9 @@ func stringList(raw json.RawMessage) ([]string, bool) {
 }
 
 // readClaims checks the type of every claim the rules name (R8). None may be
-// null but roles. sys is read only for its presence (R13) and, as a string,
-// for Identity.System.
-func readClaims(m map[string]json.RawMessage) (*claimSet, error) {
+// null but roles. sys is read for its presence (R13); with allowSystem it
+// must also be a non-empty string, the system's name.
+func readClaims(m map[string]json.RawMessage, allowSystem bool) (*claimSet, error) {
 	c := &claimSet{}
 	bad := func(name string) error { return refuse(InvalidClaim, "%s has the wrong type or format", name) }
 	into := func(name string, v any) bool {
@@ -315,8 +370,10 @@ func readClaims(m map[string]json.RawMessage) (*claimSet, error) {
 	}
 	var raw json.RawMessage
 	raw, c.sys = m["sys"]
-	if c.sys {
-		_ = json.Unmarshal(raw, &c.sysName)
+	if c.sys && allowSystem {
+		if len(raw) == 0 || raw[0] != '"' || json.Unmarshal(raw, &c.sysName) != nil || c.sysName == "" {
+			return nil, bad("sys")
+		}
 	}
 	return c, nil
 }
