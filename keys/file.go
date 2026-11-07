@@ -42,8 +42,9 @@ func (f *file) read() ([]StoredKey, error) {
 	return keys, nil
 }
 
-// write changes the file whole: written beside it, then moved over it, so a
-// crash never leaves half a file.
+// write changes the file whole: written to a fresh temp file beside it
+// (os.CreateTemp, never a predictable name), made the owner's only, synced,
+// then moved over it, so a crash never leaves half a file.
 func (f *file) write(change func([]StoredKey) []StoredKey) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -58,11 +59,34 @@ func (f *file) write(change func([]StoredKey) []StoredKey) error {
 	if err := os.MkdirAll(filepath.Dir(f.path), 0o700); err != nil {
 		return err
 	}
-	tmp := fmt.Sprintf("%s.%d.tmp", f.path, os.Getpid())
-	if err := os.WriteFile(tmp, append(raw, '\n'), 0o600); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(f.path), filepath.Base(f.path)+".*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, f.path)
+	done := false
+	defer func() {
+		if !done {
+			tmp.Close()
+			os.Remove(tmp.Name())
+		}
+	}()
+	if err := tmp.Chmod(0o600); err != nil {
+		return err
+	}
+	if _, err := tmp.Write(append(raw, '\n')); err != nil {
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp.Name(), f.path); err != nil {
+		return err
+	}
+	done = true
+	return nil
 }
 
 func (f *file) List(context.Context) ([]StoredKey, error) {
