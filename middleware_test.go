@@ -76,3 +76,24 @@ func TestRequireFuncAnswersAsTheApplicationSays(t *testing.T) {
 		t.Fatalf("%d %v", w.Code, got)
 	}
 }
+
+func TestRequireAnswers503WhenTheRequestEndsBeforeTheFirstKeys(t *testing.T) {
+	gate := make(chan struct{})
+	defer close(gate)
+	v := verifier(t, func(c *VerifierConfig) {
+		c.Now = func() time.Time { return now }
+		c.Keys = NewRemoteKeys(func(context.Context) ([]byte, time.Duration, error) {
+			<-gate
+			return nil, 0, errors.New("slow")
+		}, 0, nil)
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	r := httptest.NewRequest(http.MethodGet, "/invoices", nil).WithContext(ctx)
+	r.Header.Set("Authorization", "Bearer "+token(t, nil))
+	w := httptest.NewRecorder()
+	v.Require(http.NotFoundHandler()).ServeHTTP(w, r)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+}

@@ -75,8 +75,8 @@ func (r *RemoteKeys) Loaded() bool {
 // stops waiting on its own ctx.
 func (r *RemoteKeys) Key(ctx context.Context, kid string) (*rsa.PublicKey, error) {
 	for {
-		if err := ctx.Err(); err != nil {
-			return nil, err
+		if ctx.Err() != nil {
+			return nil, r.gaveUp(ctx)
 		}
 		r.mu.Lock()
 		now := r.now()
@@ -105,9 +105,19 @@ func (r *RemoteKeys) Key(ctx context.Context, kid string) (*rsa.PublicKey, error
 		select {
 		case <-ch:
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return nil, r.gaveUp(ctx)
 		}
 	}
+}
+
+// gaveUp is the error of a caller whose ctx ended. Before any set arrived it
+// wraps ErrNoKeySet beside ErrUnknownKid: a request deadline that runs out
+// while Cauthy has never answered is an outage (503), not a forged kid.
+func (r *RemoteKeys) gaveUp(ctx context.Context) error {
+	if r.Loaded() {
+		return ctx.Err()
+	}
+	return fmt.Errorf("%w: %w: %w", ErrUnknownKid, ErrNoKeySet, ctx.Err())
 }
 
 // refresh fetches and installs the set, then closes ch. A panic in the

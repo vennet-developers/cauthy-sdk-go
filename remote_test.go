@@ -244,3 +244,22 @@ func TestMaxAgeOf(t *testing.T) {
 		}
 	}
 }
+
+func TestRemoteKeysDeadlineBeforeTheFirstSetIsSaidApart(t *testing.T) {
+	testKeys(t)
+	src := &source{gate: make(chan struct{})}
+	defer close(src.gate)
+	src.set(setOf("a"), false)
+	r := NewRemoteKeys(src.fetch, 0, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	_, err := r.Key(ctx, "a")
+	if !errors.Is(err, ErrUnknownKid) || !errors.Is(err, ErrNoKeySet) || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("want ErrUnknownKid, ErrNoKeySet and the deadline, got %v", err)
+	}
+	// Once ended, a ctx before any call is the same.
+	_, err = r.Key(ctx, "a")
+	if !errors.Is(err, ErrNoKeySet) || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("an ended ctx before the first set: %v", err)
+	}
+}
