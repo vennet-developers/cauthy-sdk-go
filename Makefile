@@ -3,7 +3,7 @@
 SPEC_DIR ?= ../cauthy-sdk-spec
 STATICCHECK := honnef.co/go/tools/cmd/staticcheck@v0.8.2
 
-.PHONY: all fmt vet lint test vectors spec
+.PHONY: all fmt vet lint test vectors spec pgtest
 
 all: fmt vet lint test vectors
 
@@ -24,3 +24,8 @@ vectors:
 
 spec:
 	SPEC_DIR=$(SPEC_DIR) sh scripts/check-spec.sh
+
+# The Postgres key store on a real Postgres; skipped without
+# CAUTHY_TEST_POSTGRES_DSN (CI's postgres job sets it).
+pgtest:
+	cd internal/pgtest && go vet ./... && go test -race -count=1 ./...

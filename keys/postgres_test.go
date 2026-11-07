@@ -1,4 +1,4 @@
-package keys
+package keys_test
 
 import (
 	"context"
@@ -10,11 +10,15 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/vennet-developers/cauthy-sdk-go/internal/storetest"
+	"github.com/vennet-developers/cauthy-sdk-go/keys"
 )
 
 // recorder is a database/sql driver that keeps a key table in memory and
 // understands exactly the five statements the store sends, so the test sees
-// the SQL itself. A real Postgres runs them in CI's postgres job.
+// the SQL itself. internal/pgtest runs the same behaviour on a real Postgres
+// (CI's postgres job).
 type recorder struct {
 	mu   sync.Mutex
 	rows map[string][3]any // kid → public_jwk, sealed, created_at
@@ -93,16 +97,16 @@ func TestPostgresStore(t *testing.T) {
 	rec := &recorder{rows: map[string][3]any{}}
 	db := sql.OpenDB(rec)
 	defer db.Close()
-	behaves(t, Postgres(db))
+	storetest.Behaves(t, keys.Postgres(db))
 	for _, q := range rec.sent {
 		if !strings.Contains(q, "cauthy_pact_keys") {
 			t.Fatalf("a statement not on the table: %s", q)
 		}
 	}
-	if _, err := PostgresTable(db, "keys; DROP TABLE users"); err == nil {
+	if _, err := keys.PostgresTable(db, "keys; DROP TABLE users"); err == nil {
 		t.Fatal("an unsafe table name must be refused")
 	}
-	ddl, err := TableSQL(DefaultTable)
+	ddl, err := keys.TableSQL(keys.DefaultTable)
 	if err != nil || !strings.Contains(ddl, "public_jwk JSONB") || !strings.Contains(ddl, "created_at TIMESTAMPTZ") {
 		t.Fatalf("%s %v", ddl, err)
 	}

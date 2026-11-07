@@ -1,73 +1,20 @@
-package keys
+package keys_test
 
 import (
-	"context"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
+
+	"github.com/vennet-developers/cauthy-sdk-go/internal/storetest"
+	"github.com/vennet-developers/cauthy-sdk-go/keys"
 )
 
-func storedKey(kid, at string) StoredKey {
-	return StoredKey{Kid: kid, PublicJWK: map[string]any{"kty": "RSA", "n": "AQAB", "e": "AQAB"}, Sealed: "sealed-" + kid, CreatedAt: at}
-}
-
-func kids(t *testing.T, s Store) []string {
-	t.Helper()
-	list, err := s.List(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var out []string
-	for _, k := range list {
-		out = append(out, k.Kid+":"+k.Sealed)
-	}
-	slices.Sort(out)
-	return out
-}
-
-// behaves is what every Store must do.
-func behaves(t *testing.T, s Store) {
-	t.Helper()
-	ctx := context.Background()
-	if got := kids(t, s); len(got) != 0 {
-		t.Fatalf("a new store holds %v", got)
-	}
-	must := func(err error) {
-		t.Helper()
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	must(s.AddFirst(ctx, storedKey("a", "2026-01-01T00:00:00.000Z")))
-	must(s.AddFirst(ctx, storedKey("b", "2026-01-01T00:00:01.000Z")))
-	if got := kids(t, s); !slices.Equal(got, []string{"a:sealed-a"}) {
-		t.Fatalf("AddFirst keeps only the first: %v", got)
-	}
-	must(s.Add(ctx, storedKey("b", "2026-01-02T00:00:00.000Z")))
-	again := storedKey("a", "2026-01-01T00:00:00.000Z")
-	again.Sealed = "other"
-	must(s.Add(ctx, again))
-	if got := kids(t, s); !slices.Equal(got, []string{"a:sealed-a", "b:sealed-b"}) {
-		t.Fatalf("Add leaves a kept kid as it is: %v", got)
-	}
-	must(s.Update(ctx, again))
-	must(s.Remove(ctx, "b"))
-	if got := kids(t, s); !slices.Equal(got, []string{"a:other"}) {
-		t.Fatalf("Update and Remove: %v", got)
-	}
-	list, _ := s.List(ctx)
-	if list[0].CreatedAt != "2026-01-01T00:00:00.000Z" || list[0].PublicJWK["kty"] != "RSA" {
-		t.Fatalf("round trip: %+v", list[0])
-	}
-}
-
-func TestMemoryStore(t *testing.T) { behaves(t, Memory()) }
+func TestMemoryStore(t *testing.T) { storetest.Behaves(t, keys.Memory()) }
 
 func TestFileStore(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "keys", "pact-keys.json")
-	behaves(t, File(path))
+	storetest.Behaves(t, keys.File(path))
 	info, err := os.Stat(path)
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("the file must be the owner's only: %v %v", info.Mode(), err)
