@@ -62,7 +62,11 @@ type Compact struct {
 	Sig     []byte
 }
 
-// ParseCompact splits a compact JWS. It checks the shape only.
+// ParseCompact splits a compact JWS. It checks the shape only, and is not a
+// verification path: it reads the SDK's own tokens back in tests and tools.
+// A token from outside goes through cauthy.Verifier, which checks every rule
+// of verification/rules.md (size, alg, repeated names, dates, kid, signature)
+// in order.
 func ParseCompact(token string) (*Compact, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
