@@ -65,7 +65,12 @@ func TestSealRoundTripsAndRefusesAnyOtherKey(t *testing.T) {
 	if _, err := Open(sealed, other); !errors.Is(err, ErrOpen) {
 		t.Fatalf("other key: %v", err)
 	}
-	tampered := sealed[:len(sealed)-2] + "AA"
+	// Flip a bit of the tag's first byte: overwriting its last characters
+	// is a no-op when the tag happens to end with them already.
+	cut := strings.LastIndexByte(sealed, '.') + 1
+	tag, _ := Decode(sealed[cut:])
+	tag[0] ^= 1
+	tampered := sealed[:cut] + Encode(tag)
 	if _, err := Open(tampered, key); !errors.Is(err, ErrOpen) {
 		t.Fatalf("tampered: %v", err)
 	}
