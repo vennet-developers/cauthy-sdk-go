@@ -23,6 +23,11 @@ type recorder struct {
 
 func (r *recorder) Open(string) (driver.Conn, error) { return &conn{r}, nil }
 
+// Connect and Driver make the recorder a driver.Connector, so each test opens
+// its own with sql.OpenDB instead of registering one recorder for the process.
+func (r *recorder) Connect(context.Context) (driver.Conn, error) { return &conn{r}, nil }
+func (r *recorder) Driver() driver.Driver                        { return r }
+
 type conn struct{ r *recorder }
 
 func (c *conn) Prepare(string) (driver.Stmt, error) { return nil, errors.New("no prepare") }
@@ -84,15 +89,10 @@ func (r *rows) Next(dest []driver.Value) error {
 	return nil
 }
 
-var registerOnce sync.Once
-
 func TestPostgresStore(t *testing.T) {
 	rec := &recorder{rows: map[string][3]any{}}
-	registerOnce.Do(func() { sql.Register("cauthy-keys-recorder", rec) })
-	db, err := sql.Open("cauthy-keys-recorder", "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	db := sql.OpenDB(rec)
+	defer db.Close()
 	behaves(t, Postgres(db))
 	for _, q := range rec.sent {
 		if !strings.Contains(q, "cauthy_pact_keys") {
