@@ -2,9 +2,12 @@ package cauthy
 
 import (
 	"context"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -165,4 +168,29 @@ func callsTo(f *cauthytest.Fake, route string) []cauthytest.Call {
 		}
 	}
 	return out
+}
+
+// roundTripper is a transport made of a function.
+type roundTripper func(*http.Request) (*http.Response, error)
+
+func (f roundTripper) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestCallsToCauthyNeverFollowARedirectOffItsHost(t *testing.T) {
+	f := cauthytest.New()
+	var elsewhere atomic.Int32
+	client := &http.Client{Transport: roundTripper(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host != "id.test" {
+			elsewhere.Add(1)
+			return &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"sub":"stolen"}`)), Request: r}, nil
+		}
+		if r.URL.Path == "/v1/oauth/userinfo" {
+			return &http.Response{StatusCode: 302, Header: http.Header{"Location": {"https://elsewhere.example.com/collect"}}, Body: io.NopCloser(strings.NewReader("")), Request: r}, nil
+		}
+		return f.Client().Transport.RoundTrip(r)
+	})}
+	a := newAuth(t, f, func(o *Options) { o.HTTPClient = client })
+	n := a.fetch(context.Background(), http.MethodGet, a.issuer+"/v1/oauth/userinfo", http.Header{"Authorization": {"Bearer at-1"}}, nil)
+	if elsewhere.Load() != 0 || n.ok() {
+		t.Fatalf("followed a redirect off Cauthy's host: %d calls elsewhere, %+v", elsewhere.Load(), n)
+	}
 }

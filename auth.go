@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -267,10 +268,25 @@ func New(o Options) (*Auth, error) {
 		return localPath(p, "/")
 	}
 	a.pages = Pages{SignIn: page(o.Pages.SignIn), ResetPassword: page(o.Pages.ResetPassword), VerifyEmail: page(o.Pages.VerifyEmail), AcceptInvite: page(o.Pages.AcceptInvite)}
-	a.http = o.HTTPClient
-	if a.http == nil {
-		a.http = &http.Client{}
+	// Calls to Cauthy never follow a redirect off its host: the tokens,
+	// codes and secrets they carry go to Cauthy and nowhere else. The
+	// application's client is copied, never changed.
+	hc := &http.Client{}
+	if o.HTTPClient != nil {
+		copied := *o.HTTPClient
+		hc = &copied
 	}
+	issuerHost := ""
+	if u, err := url.Parse(a.issuer); err == nil {
+		issuerHost = u.Host
+	}
+	hc.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if req.URL.Host != issuerHost || len(via) >= 10 {
+			return http.ErrUseLastResponse
+		}
+		return nil
+	}
+	a.http = hc
 	a.clientIP = o.ClientIP
 	if a.clientIP == nil {
 		a.clientIP = forwardedFor
