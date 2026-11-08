@@ -48,3 +48,31 @@ func TestEveryRouteOfTheTableIsServed(t *testing.T) {
 		}
 	}
 }
+
+// TestEveryPOSTRouteHasAHandler: the table check above cannot see a missing
+// POST handler, since a body that is not an object is refused before the
+// route is looked up. Every POST route of routes.yaml is registered in
+// ownBare, ownPOST or ownMe, or is one of the two the handler serves itself.
+func TestEveryPOSTRouteHasAHandler(t *testing.T) {
+	routes, err := spec.Routes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	served := map[string]bool{"/logout": true, "/me/organizations/check": true}
+	posts := 0
+	for _, r := range routes {
+		if r.Method != "POST" {
+			continue
+		}
+		posts++
+		_, bare := ownBare[r.Path]
+		_, post := ownPOST[r.Path]
+		_, me := ownMe[r.Path]
+		if !(bare || post || me || served[r.Path]) {
+			t.Errorf("POST %s (%s) has no handler", r.Path, r.ID)
+		}
+	}
+	if posts == 0 {
+		t.Fatal("no POST route read from routes.yaml")
+	}
+}
