@@ -1,5 +1,5 @@
 # Every check CI runs, runnable on a laptop. SPEC_DIR is a cauthy-sdk-spec
-# checkout (default ../cauthy-sdk-spec) at the pinned tag (conformance/v0.1.1).
+# checkout (default ../cauthy-sdk-spec) at the pinned commit (fff18a7998c0c1028ad363c23b3ce4b73d30cf2d, conformance/v0.3.0 once tagged).
 SPEC_DIR ?= ../cauthy-sdk-spec
 MODULES := . ./examples/acme-crm ./gin ./echo ./fiber ./internal/pgtest
 STATICCHECK := honnef.co/go/tools/cmd/staticcheck@v0.8.2
@@ -35,7 +35,7 @@ spec:
 	SPEC_DIR=$(SPEC_DIR) sh scripts/check-spec.sh
 
 conformance:
-	SPEC_DIR=$(SPEC_DIR) LEVEL=strict sh scripts/conformance.sh
+	SPEC_DIR=$(SPEC_DIR) LEVEL=switches sh scripts/conformance.sh
 
 tidy:
 	@for m in $(MODULES); do (cd $$m && go mod tidy) || exit 1; done

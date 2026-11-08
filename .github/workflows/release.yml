@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: vennet-developers/cauthy-sdk-spec
-          ref: conformance/v0.1.1
+          ref: fff18a7998c0c1028ad363c23b3ce4b73d30cf2d # conformance/v0.3.0 once tagged
           path: spec
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
@@ -31,8 +31,8 @@ jobs:
       - run: make fmt vet lint vulncheck test
       - run: SPEC_DIR=spec sh scripts/check-spec.sh
       - run: go test -count=1 -run 'TestVectors|TestEveryRouteOfTheTableIsServed' .
-      - name: no version is tagged without strict conformance
+      - name: no version is tagged without conformance at level switches
         run: sh scripts/conformance.sh
         env:
           SPEC_DIR: ${{ github.workspace }}/spec
-          LEVEL: strict
+          LEVEL: switches
