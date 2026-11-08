@@ -12,14 +12,14 @@ import (
 )
 
 // TestVectors runs every vector of cauthy-sdk-spec against the verifier: the
-// verdict and the reason must match exactly, all 96 of them.
+// verdict and the reason must match exactly, all 108 of them.
 func TestVectors(t *testing.T) {
 	f, jwks, err := spec.Vectors()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(f.Cases) != 96 {
-		t.Fatalf("%d vectors, want 96: sync testdata with scripts/sync-spec.sh", len(f.Cases))
+	if len(f.Cases) != 108 {
+		t.Fatalf("%d vectors, want 108: sync testdata with scripts/sync-spec.sh", len(f.Cases))
 	}
 	if time.Duration(f.LeewaySeconds)*time.Second != cauthy.DefaultLeeway || f.MaxTokenBytes != cauthy.MaxTokenBytes {
 		t.Fatalf("the vectors assume leeway %ds and %d bytes", f.LeewaySeconds, f.MaxTokenBytes)
@@ -32,7 +32,7 @@ func TestVectors(t *testing.T) {
 		t.Run(c.Name, func(t *testing.T) {
 			v, err := cauthy.NewVerifier(cauthy.VerifierConfig{
 				Issuer: c.Config.Issuer, Issuers: c.Config.Issuers, Audience: c.Config.Audience, Tenant: c.Config.Tenant,
-				AllowAnonymous: c.Config.AllowAnonymous, Keys: keys,
+				AllowAnonymous: c.Config.AllowAnonymous, AllowClientTokens: c.Config.AllowClientTokens, ClientID: c.Config.ClientID, Keys: keys,
 			})
 			if err != nil {
 				t.Fatal(err)
