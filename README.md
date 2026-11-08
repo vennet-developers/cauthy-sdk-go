@@ -12,6 +12,10 @@ It meets [cauthy-sdk-spec](https://github.com/vennet-developers/cauthy-sdk-spec)
 at `conformance/v0.1.1`: every token vector, and `cauthy-conformance --level strict`
 against the Acme CRM example, in CI on every commit.
 
+Locally, the dashboard switches too (the in-memory Cauthy serves its admin API):
+
+    SPEC_DIR=../cauthy-sdk-spec LEVEL=switches sh scripts/conformance.sh
+
 ## An API behind another backend: verify tokens
 
 ```go
