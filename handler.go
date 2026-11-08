@@ -100,28 +100,28 @@ func (a *Auth) jwksReply(r *http.Request) *reply {
 	return rep
 }
 
-// emailNotVerifiedReply marks a reply that stands for errEmailNotVerified:
+// emailNotConfirmedReply marks a reply that stands for errEmailNotConfirmed:
 // unverifiedOr turns it into the answer for the request.
-var emailNotVerifiedReply = &reply{}
+var emailNotConfirmedReply = &reply{}
 
 // unverifiedOr answers a sign-in Cauthy completed for an address the link
 // requires confirmed, and it is not: a plain-text 403 for a page, the JSON
 // error for anything else.
 func (a *Auth) unverifiedOr(r *http.Request, rep *reply) *reply {
-	if rep != emailNotVerifiedReply {
+	if rep != emailNotConfirmedReply {
 		return rep
 	}
 	mode := r.Header.Get("Sec-Fetch-Mode")
 	if r.Method == http.MethodGet && (mode == "" || mode == "navigate") {
-		return text(http.StatusForbidden, "Sign-in refused (email_not_verified). Confirm your email address first.")
+		return text(http.StatusForbidden, "Sign-in refused (email_not_confirmed). Confirm your email address first.")
 	}
-	return problem(http.StatusForbidden, "email_not_verified", "Confirm your email address first.", "", nil, nil)
+	return problem(http.StatusForbidden, "email_not_confirmed", "Confirm your email address first.", "", nil, nil)
 }
 
-// orUnverified is emailNotVerifiedReply for errEmailNotVerified, else nil.
+// orUnverified is emailNotConfirmedReply for errEmailNotConfirmed, else nil.
 func orUnverified(err error) *reply {
-	if errors.Is(err, errEmailNotVerified) {
-		return emailNotVerifiedReply
+	if errors.Is(err, errEmailNotConfirmed) {
+		return emailNotConfirmedReply
 	}
 	return nil
 }
@@ -210,12 +210,12 @@ func (a *Auth) callback(r *http.Request) *reply {
 		return a.failedSignIn(r, "exchange_failed")
 	}
 	s, err := a.toStored(r.Context(), body, nil)
-	if errors.Is(err, errEmailNotVerified) {
+	if errors.Is(err, errEmailNotConfirmed) {
 		page := a.pages.SignIn
 		if page == "" {
 			page = "/"
 		}
-		return redirect(withQuery(page, "auth_error", "email_not_verified"), clearFlow, writeCookie(a.againCookie, "", a.attrs(r).age(0)))
+		return redirect(withQuery(page, "auth_error", "email_not_confirmed"), clearFlow, writeCookie(a.againCookie, "", a.attrs(r).age(0)))
 	}
 	if s == nil {
 		return a.failedSignIn(r, "exchange_failed")

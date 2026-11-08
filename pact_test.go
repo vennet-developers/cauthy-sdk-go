@@ -128,7 +128,25 @@ func TestALinkThatRequiresAVerifiedAddressLetsNobodyElseIn(t *testing.T) {
 	res := b.Send(a, "GET", "/api/auth/login?return_to=/x", nil)
 	back, _ := f.Authorize(res.Header.Get("Location"), "u2")
 	res = b.Send(a, "GET", strings.TrimPrefix(back, "https://app.test"), nil)
-	if res.Header.Get("Location") != "/?auth_error=email_not_verified" || b.Jar["cauthy_session.0"] != "" || len(f.Revoked()) != 1 {
+	if res.Header.Get("Location") != "/?auth_error=email_not_confirmed" || b.Jar["cauthy_session.0"] != "" || len(f.Revoked()) != 1 {
 		t.Fatalf("refused and the tokens revoked: %v %v %v", res.Header, b.Jar, f.Revoked())
+	}
+}
+
+func TestAnUnconfirmedAddressIsRefusedOnTheOwnScreensAsEmailNotConfirmed(t *testing.T) {
+	f := cauthytest.New()
+	f.OwnScreens = true
+	unverified := false
+	f.AddUser(cauthytest.User{Sub: "u2", Email: "new@example.com", Name: "New", Active: true, Verified: &unverified}, "correct horse battery staple")
+	a, err := contractAuth(t, f, keys.Memory(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := cauthytest.NewBrowser("")
+	res := b.Send(a, "POST", "/api/auth/sign-in/email", map[string]any{"email": "new@example.com", "password": "correct horse battery staple"})
+	body := cauthytest.JSON(res)
+	e, _ := body["error"].(map[string]any)
+	if res.StatusCode != 403 || e["code"] != "email_not_confirmed" || b.Jar["cauthy_session.0"] != "" {
+		t.Fatalf("%d %v %v", res.StatusCode, body, b.Jar)
 	}
 }

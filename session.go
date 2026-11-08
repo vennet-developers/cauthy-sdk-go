@@ -157,9 +157,9 @@ const (
 	maxAnswer         = 1 << 20
 )
 
-// errEmailNotVerified: Cauthy signed in a person whose address the link
+// errEmailNotConfirmed: Cauthy signed in a person whose address the link
 // requires confirmed, and it is not.
-var errEmailNotVerified = errors.New("cauthy: email_not_verified")
+var errEmailNotConfirmed = errors.New("cauthy: email_not_confirmed")
 
 // seal seals v with the first key of ring.
 func seal(v any, ring [][]byte) (string, error) {
@@ -305,7 +305,7 @@ func (a *Auth) toStored(ctx context.Context, body any, was *stored) (*stored, er
 	if a.unverified(w.u) {
 		// The session these tokens would have started never begins.
 		a.revoke(ctx, rt)
-		return nil, errEmailNotVerified
+		return nil, errEmailNotConfirmed
 	}
 	return &stored{AT: at1, RT: rt, Exp: a.now().Unix() + lifetime(body), U: w.u, TID: w.tid, Roles: w.roles, P: persistent(body, was)}, nil
 }
@@ -407,7 +407,7 @@ func (a *Auth) renewOnce(ctx context.Context, was *stored) (*stored, renewOutcom
 		return nil, renewUnreachable
 	}
 	next, err := a.toStored(ctx, body, was)
-	if errors.Is(err, errEmailNotVerified) {
+	if errors.Is(err, errEmailNotConfirmed) {
 		return nil, renewEnded
 	}
 	if next != nil {
