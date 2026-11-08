@@ -144,7 +144,9 @@ func send(w http.ResponseWriter, route string, rep *reply, cacheable bool) {
 		h[k] = v
 	}
 	h.Set("Cauthy-Protocol", ProtocolVersion)
-	if !cacheable && !strings.Contains(h.Get("Cache-Control"), "no-store") {
+	h.Set("X-Content-Type-Options", "nosniff")
+	// Only a successful key set is cacheable: a 503 for the keys is not.
+	if !(cacheable && rep.status == http.StatusOK) && !strings.Contains(h.Get("Cache-Control"), "no-store") {
 		h.Set("Cache-Control", "no-store")
 	}
 	body := rep.body

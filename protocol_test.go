@@ -3,6 +3,7 @@ package cauthy
 import (
 	"encoding/json"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -60,5 +61,30 @@ func TestSendGivesEveryAnswerTheProtocolsHeaders(t *testing.T) {
 	}
 	if m := methodNotAllowed(); m.status != 405 || m.header.Get("Allow") != "POST" {
 		t.Fatal("405")
+	}
+}
+
+func TestSendCachesOnlyASuccessfulKeySet(t *testing.T) {
+	w := httptest.NewRecorder()
+	send(w, "", text(http.StatusServiceUnavailable, "The keys are unavailable right now."), true)
+	if w.Code != 503 || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("a 503 for the keys must not be cached: %d %v", w.Code, w.Header())
+	}
+	w = httptest.NewRecorder()
+	rep := ok(map[string]any{"keys": []any{}}, nil)
+	rep.header.Set("Cache-Control", "public, max-age=300")
+	send(w, "", rep, true)
+	if w.Header().Get("Cache-Control") != "public, max-age=300" {
+		t.Fatalf("the keys are cacheable: %v", w.Header())
+	}
+}
+
+func TestSendTellsTheBrowserNotToSniff(t *testing.T) {
+	for _, rep := range []*reply{ok(map[string]any{}, nil), text(400, "x"), redirect("/")} {
+		w := httptest.NewRecorder()
+		send(w, "/session", rep, false)
+		if w.Header().Get("X-Content-Type-Options") != "nosniff" {
+			t.Fatalf("%d: %v", rep.status, w.Header())
+		}
 	}
 }
