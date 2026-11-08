@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // withoutTrailingSlashes is s without its trailing slashes.
@@ -176,3 +177,15 @@ var timeAfter = time.After
 // urlQueryEscape is url.QueryEscape, as JavaScript's encodeURIComponent
 // writes a path: a space as %20.
 func urlQueryEscape(s string) string { return strings.ReplaceAll(url.QueryEscape(s), "+", "%20") }
+
+// cut is s at most n bytes long, cut on a character boundary: text that is
+// reflected back is never left as broken UTF-8.
+func cut(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}

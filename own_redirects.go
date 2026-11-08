@@ -68,7 +68,7 @@ func (a *Auth) ssoCallback(r *http.Request, _ string) *reply {
 	}
 	q := r.URL.Query()
 	if e := q.Get("error"); e != "" {
-		return failedTo(back, e, clear)
+		return failedTo(back, cut(e, 60), clear)
 	}
 	code := q.Get("code")
 	if code == "" {

@@ -195,10 +195,7 @@ func (a *Auth) callback(r *http.Request) *reply {
 			}
 			return redirect(withQuery(back, "auth_error", "cancelled"), clearFlow)
 		}
-		if len(e) > 60 {
-			e = e[:60]
-		}
-		return a.failedSignIn(r, e)
+		return a.failedSignIn(r, cut(e, 60))
 	}
 	code := q.Get("code")
 	if code == "" {

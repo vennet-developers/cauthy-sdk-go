@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/vennet-developers/cauthy-sdk-go/cauthytest"
 )
@@ -125,5 +126,19 @@ func TestMountServesBothPaths(t *testing.T) {
 	}
 	if res := b.Send(mux, "GET", DefaultJWKSPath, nil); res.StatusCode != 404 || res.Header.Get("Cauthy-Protocol") != "1" {
 		t.Fatalf("no keys published: Auth answers 404 there: %d", res.StatusCode)
+	}
+}
+
+func TestTheCallbackCutsAReflectedErrorOnACharacter(t *testing.T) {
+	f := cauthytest.New()
+	a := newAuth(t, f, nil)
+	b := cauthytest.NewBrowser("")
+	res := b.Send(a, "GET", "/api/auth/login?return_to=/x", nil)
+	loc, _ := url.Parse(res.Header.Get("Location"))
+	e := strings.Repeat("a", 59) + "é" + strings.Repeat("b", 10)
+	res = b.Send(a, "GET", "/api/auth/callback?state="+url.QueryEscape(loc.Query().Get("state"))+"&error="+url.QueryEscape(e), nil)
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != 400 || !utf8.Valid(body) || !strings.Contains(string(body), "("+strings.Repeat("a", 59)+")") {
+		t.Fatalf("%d %q", res.StatusCode, body)
 	}
 }
