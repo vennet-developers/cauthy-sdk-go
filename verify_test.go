@@ -180,3 +180,20 @@ func TestVerifyReportsTheAuthorizedParty(t *testing.T) {
 		t.Fatalf("%+v, %v", id, err)
 	}
 }
+
+func TestVerifyRefusesATokenOfAnotherClientWhenOneIsNamed(t *testing.T) {
+	named := verifier(t, func(c *VerifierConfig) { c.ClientID = "acme-web" })
+	for _, azp := range []string{"acme-admin", "Acme-Web"} {
+		if _, err := named.VerifyAt(context.Background(), token(t, map[string]any{"azp": azp}), now); reasonOf(err) != WrongClient {
+			t.Errorf("azp %q: want wrong_client, got %v", azp, err)
+		}
+	}
+	for _, claims := range []map[string]any{{"azp": "acme-web"}, nil} {
+		if _, err := named.VerifyAt(context.Background(), token(t, claims), now); err != nil {
+			t.Errorf("%v: %v", claims, err)
+		}
+	}
+	if _, err := verifier(t, nil).VerifyAt(context.Background(), token(t, map[string]any{"azp": "acme-admin"}), now); err != nil {
+		t.Fatalf("no client named: %v", err)
+	}
+}

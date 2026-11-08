@@ -237,6 +237,11 @@ func (v *Verifier) VerifyAt(ctx context.Context, token string, now time.Time) (*
 	if c.anon && !v.cfg.AllowAnonymous {
 		return nil, refuse(AnonymousToken, "the token is a guest's")
 	}
+	// R15 — a person's token issued through another client than the one
+	// this backend names. A token that names no client passes.
+	if v.cfg.ClientID != "" && c.azp != "" && c.azp != v.cfg.ClientID {
+		return nil, refuse(WrongClient, "azp %q", c.azp)
+	}
 
 	roles := c.roles
 	if roles == nil {

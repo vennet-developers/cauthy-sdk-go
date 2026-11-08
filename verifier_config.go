@@ -37,6 +37,12 @@ type VerifierConfig struct {
 	// serves machines as well as people. Off by default: a machine never
 	// passes as a person. Identity.ClientID then names the client.
 	AllowClientTokens bool
+	// ClientID is the client this backend signs people in through. When
+	// set, a person's token issued through another client (an azp naming
+	// another) is refused with wrong_client (rule R15); a token with no azp
+	// passes. VerifierConfigFromContract sets the link's sign-in client.
+	// Empty by default: azp is not checked.
+	ClientID string
 	// Leeway is the clock tolerance: nil is DefaultLeeway, a pointer to zero
 	// is none, at most MaxLeeway. LeewayOf makes the pointer.
 	Leeway *time.Duration

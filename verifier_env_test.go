@@ -20,9 +20,11 @@ func TestVerifierConfigFromEnv(t *testing.T) {
 }
 
 func TestVerifierConfigFromContract(t *testing.T) {
-	c := &contract.Resolved{Link: "acme-crm-signs-in-with-cauthy", Issuer: "https://id.example.com", TenantID: goodConfig.Tenant, Audience: "cauthy", TokenAlgorithm: "RS256"}
+	c := &contract.Resolved{Link: "acme-crm-signs-in-with-cauthy", Issuer: "https://id.example.com", TenantID: goodConfig.Tenant, Audience: "cauthy", TokenAlgorithm: "RS256",
+		ClientID: "pact.acme-crm-signs-in-with-cauthy"}
 	cfg, err := VerifierConfigFromContract(c)
-	if err != nil || cfg.Issuer != c.Issuer || cfg.Tenant != c.TenantID || cfg.Audience != "cauthy" {
+	// The link's sign-in client: a person's token issued through another is refused (R15).
+	if err != nil || cfg.Issuer != c.Issuer || cfg.Tenant != c.TenantID || cfg.Audience != "cauthy" || cfg.ClientID != c.ClientID {
 		t.Fatalf("%+v %v", cfg, err)
 	}
 	if _, err := NewVerifier(cfg); err != nil {

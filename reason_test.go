@@ -15,7 +15,7 @@ func TestTokenErrorNamesTheReasonAndUnwraps(t *testing.T) {
 	if !errors.Is(e, inner) {
 		t.Fatal("does not unwrap")
 	}
-	if len(Reasons) != 19 || Reasons[0] != TooLarge || Reasons[17] != ClientToken || Reasons[18] != AnonymousToken {
+	if len(Reasons) != 20 || Reasons[0] != TooLarge || Reasons[17] != ClientToken || Reasons[18] != AnonymousToken || Reasons[19] != WrongClient {
 		t.Fatalf("Reasons: %v", Reasons)
 	}
 }

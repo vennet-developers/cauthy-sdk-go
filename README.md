@@ -34,7 +34,9 @@ r.With(verifier.Require).Get("/api/records", func(w http.ResponseWriter, r *http
 })
 ```
 
-By contract, `contract.Read` the graph and pass it to `cauthy.VerifierConfigFromContract`.
+By contract, `contract.Read` the graph and pass it to `cauthy.VerifierConfigFromContract`;
+it names the link's sign-in client (`ClientID`), and a person's token issued through
+another client is refused (`wrong_client`; a token with no `azp` passes).
 A system's own token (`sys`), a client's own token (`token_use`, from a
 `client_credentials` grant: reason `client_token`) and a guest's token are refused
 where a person is expected. An endpoint that machines call sets

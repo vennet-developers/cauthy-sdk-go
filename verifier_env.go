@@ -29,8 +29,10 @@ func VerifierConfigFromEnv(getenv func(string) string) (VerifierConfig, error) {
 }
 
 // VerifierConfigFromContract is a verifier's configuration from the
-// application's link in the Pact graph: Cauthy's address, the workspace, and
-// the audience and algorithm of the capability the link uses.
+// application's link in the Pact graph: Cauthy's address, the workspace, the
+// audience and algorithm of the capability the link uses, and the link's
+// sign-in client (a person's token issued through another is refused with
+// wrong_client).
 func VerifierConfigFromContract(c *contract.Resolved) (VerifierConfig, error) {
 	if c.Audience == "" {
 		return VerifierConfig{}, cfgerr.New("the link %s uses a capability that names no token audience: set VerifierConfig.Audience", c.Link)
@@ -38,5 +40,5 @@ func VerifierConfigFromContract(c *contract.Resolved) (VerifierConfig, error) {
 	if c.TokenAlgorithm != "" && c.TokenAlgorithm != "RS256" {
 		return VerifierConfig{}, cfgerr.New("the link %s signs tokens with %q: Cauthy's tokens are RS256", c.Link, c.TokenAlgorithm)
 	}
-	return VerifierConfig{Issuer: c.Issuer, Audience: c.Audience, Tenant: c.TenantID}, nil
+	return VerifierConfig{Issuer: c.Issuer, Audience: c.Audience, Tenant: c.TenantID, ClientID: c.ClientID}, nil
 }
