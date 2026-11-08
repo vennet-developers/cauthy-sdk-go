@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/gofiber/fiber/v2 v2.52.16
-	github.com/vennet-developers/cauthy-sdk-go v0.0.0
+	github.com/vennet-developers/cauthy-sdk-go v1.0.0
 )
 
 require (
@@ -19,5 +19,3 @@ require (
 	github.com/valyala/fasthttp v1.70.0 // indirect
 	golang.org/x/sys v0.44.0 // indirect
 )
-
-replace github.com/vennet-developers/cauthy-sdk-go => ../

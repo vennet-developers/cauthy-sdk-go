@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/gin-gonic/gin v1.12.0
-	github.com/vennet-developers/cauthy-sdk-go v0.0.0
+	github.com/vennet-developers/cauthy-sdk-go v1.0.0
 )
 
 require (
@@ -38,5 +38,3 @@ require (
 	golang.org/x/text v0.43.0 // indirect
 	google.golang.org/protobuf v1.36.10 // indirect
 )
-
-replace github.com/vennet-developers/cauthy-sdk-go => ../
