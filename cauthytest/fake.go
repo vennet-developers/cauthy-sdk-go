@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -71,8 +72,15 @@ type Fake struct {
 	ExpiresIn int
 	// Persistent is what token answers say of the session's kind; nil says nothing.
 	Persistent *bool
-	// Settings is what GET /v1/auth/settings answers.
+	// Settings is what GET /v1/auth/settings answers. Change it before the
+	// fake serves, or with SetSetting while it does.
 	Settings map[string]any
+	// AdminToken is the bearer the admin API takes (settings, the
+	// application's client, accounts); "" refuses every admin call.
+	AdminToken string
+	// ClientID is the application's client, as the admin API lists it; its
+	// allow_persistent_sessions is Settings["persistent_sessions"].
+	ClientID string
 
 	mu        sync.Mutex
 	users     map[string]*User
@@ -92,7 +100,7 @@ type code struct{ sub, challenge, redirectURI string }
 // New is a fake Cauthy with one account, ana@example.com (u1), and no password.
 func New() *Fake {
 	f := &Fake{
-		Issuer: "https://id.test", Tenant: "acme", ExpiresIn: 600,
+		Issuer: "https://id.test", Tenant: "acme", ExpiresIn: 600, ClientID: "acme-crm",
 		Settings: map[string]any{"allow_password": true, "allow_signup": false, "allow_passkeys": false, "persistent_sessions": false},
 		users:    map[string]*User{}, passwords: map[string]string{}, orgs: map[string][]map[string]any{},
 		codes: map[string]code{}, refresh: map[string]string{}, access: map[string]string{}, scripted: map[string]func(Call) Reply{},
@@ -109,6 +117,38 @@ func (f *Fake) AddUser(u User, password string) {
 	if password != "" {
 		f.passwords[u.Email] = password
 	}
+}
+
+// SetAdminToken sets AdminToken. A program that may be built against a
+// cauthytest older than the admin API (the conformance target, whose module
+// requires a released version) asks for this method instead of the field.
+func (f *Fake) SetAdminToken(token string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.AdminToken = token
+}
+
+// SetSetting changes one setting GET /v1/auth/settings answers, safely while the fake serves.
+func (f *Fake) SetSetting(key string, value any) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	next := maps.Clone(f.Settings)
+	next[key] = value
+	f.Settings = next
+}
+
+// Setting reads one setting, safely while the fake serves.
+func (f *Fake) Setting(key string) any {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.Settings[key]
+}
+
+// HasUser says whether an account is there (the admin API may delete one).
+func (f *Fake) HasUser(sub string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.users[sub] != nil
 }
 
 // SetActive turns an account on or off.
@@ -186,15 +226,22 @@ func (f *Fake) Issue(sub string) map[string]any {
 	return f.issue(sub)
 }
 
-func (f *Fake) issue(sub string) map[string]any {
+func (f *Fake) issue(sub string) map[string]any { return f.issueKind(sub, nil) }
+
+// issueKind is a token answer; kind is what a sign-in asked for (remember)
+// when the client allows long sessions. Persistent wins when set.
+func (f *Fake) issueKind(sub string, kind *bool) map[string]any {
 	f.n++
 	at := fmt.Sprintf("at-%d", f.n)
 	f.n++
 	rt := fmt.Sprintf("rt-%d", f.n)
 	f.access[at], f.refresh[rt] = sub, sub
 	out := map[string]any{"access_token": at, "refresh_token": rt, "token_type": "Bearer", "expires_in": f.ExpiresIn, "scope": ""}
-	if f.Persistent != nil {
+	switch {
+	case f.Persistent != nil:
 		out["persistent"] = *f.Persistent
+	case kind != nil:
+		out["persistent"] = *kind
 	}
 	return out
 }
@@ -251,6 +298,9 @@ func (f *Fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		reply(w, out.Status, out.Body)
+		return
+	}
+	if f.admin(w, c) {
 		return
 	}
 	if f.OwnScreens && strings.HasPrefix(r.URL.Path, "/v1/auth/") {
@@ -370,6 +420,10 @@ func (f *Fake) ownScreen(w http.ResponseWriter, c Call) {
 	}
 	switch c.Method + " " + c.Path {
 	case "POST /v1/auth/login":
+		if f.Settings["allow_password"] == false {
+			refuse(403, "password_disabled", "this workspace does not take passwords: sign in another way")
+			return
+		}
 		email, _ := c.JSON["email"].(string)
 		password, _ := c.JSON["password"].(string)
 		var user *User
@@ -383,7 +437,46 @@ func (f *Fake) ownScreen(w http.ResponseWriter, c Call) {
 			refuse(401, "invalid_credentials", "invalid email or password")
 			return
 		}
-		reply(w, 200, map[string]any{"data": f.issue(user.Sub)})
+		// A long session only when the person asked and the client allows it.
+		var kind *bool
+		if f.Settings["persistent_sessions"] == true {
+			remember := c.Header.Get("X-Cauthy-Remember") == "1"
+			kind = &remember
+		}
+		reply(w, 200, map[string]any{"data": f.issueKind(user.Sub, kind)})
+	case "POST /v1/auth/register":
+		email, _ := c.JSON["email"].(string)
+		password, _ := c.JSON["password"].(string)
+		name, _ := c.JSON["display_name"].(string)
+		switch {
+		case f.Settings["allow_signup"] == false:
+			refuse(403, "signups_disabled", "this workspace is not accepting new accounts")
+			return
+		case f.Settings["allow_password"] == false:
+			refuse(403, "password_disabled", "this workspace does not take passwords: sign in another way")
+			return
+		case email == "" || password == "":
+			refuse(400, "validation_error", "email and password are required")
+			return
+		}
+		for _, u := range f.users {
+			if u.Email == email {
+				refuse(409, "email_taken", "an account with this email exists")
+				return
+			}
+		}
+		// With confirm_email the account waits for its address (verify_grace_days 0 in the fake).
+		confirm := f.Settings["confirm_email"] == true
+		f.n++
+		sub := fmt.Sprintf("u-%d", f.n)
+		verified := !confirm
+		f.users[sub] = &User{Sub: sub, Email: email, Name: name, Active: !confirm, Verified: &verified}
+		f.passwords[email] = password
+		data := map[string]any{"user_id": sub, "email": email}
+		if confirm {
+			data["verification_required"] = true
+		}
+		reply(w, 201, map[string]any{"data": data})
 	case "GET /v1/auth/settings":
 		reply(w, 200, map[string]any{"data": f.Settings})
 	case "GET /v1/auth/social/providers", "GET /v1/auth/sso/connections":
@@ -393,4 +486,91 @@ func (f *Fake) ownScreen(w http.ResponseWriter, c Call) {
 	default:
 		refuse(404, "not_found", "not found")
 	}
+}
+
+// adminSettings are the settings the admin API changes, as the dashboard's switches do.
+var adminSettings = []string{"allow_signup", "allow_password", "allow_magic_link", "allow_passkeys", "confirm_email", "verify_grace_days"}
+
+var (
+	clientPath = regexp.MustCompile(`^/v1/oauth/clients/([^/]+)$`)
+	userPath   = regexp.MustCompile(`^/v1/users/([^/]+)$`)
+)
+
+// admin answers the part of Cauthy's admin API the conformance runner's
+// dashboard-switch checks drive: GET and PUT /v1/settings/auth, GET
+// /v1/oauth/clients, PATCH /v1/oauth/clients/{id}, GET /v1/users and DELETE
+// /v1/users/{id}. It answers false, writing nothing, for any other request.
+func (f *Fake) admin(w http.ResponseWriter, c Call) bool {
+	route := c.Method + " " + c.Path
+	client := clientPath.FindStringSubmatch(c.Path)
+	user := userPath.FindStringSubmatch(c.Path)
+	switch {
+	case route == "GET /v1/settings/auth", route == "PUT /v1/settings/auth", route == "GET /v1/oauth/clients", route == "GET /v1/users":
+	case c.Method == http.MethodPatch && client != nil, c.Method == http.MethodDelete && user != nil:
+	default:
+		return false
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	refuse := func(status int, code, message string) {
+		reply(w, status, map[string]any{"errors": []any{map[string]any{"code": code, "message": message}}})
+	}
+	if f.AdminToken == "" || c.Header.Get("Authorization") != "Bearer "+f.AdminToken {
+		refuse(401, "unauthorized", "invalid or expired token")
+		return true
+	}
+	if c.Header.Get("X-Tenant-Key") != f.Tenant {
+		refuse(404, "tenant_not_found", "no such workspace")
+		return true
+	}
+	persistent := func() bool { return f.Settings["persistent_sessions"] == true }
+	switch {
+	case route == "GET /v1/settings/auth":
+		reply(w, 200, map[string]any{"data": f.Settings})
+	case route == "PUT /v1/settings/auth":
+		next := maps.Clone(f.Settings)
+		for _, k := range adminSettings {
+			if v, ok := c.JSON[k]; ok && v != nil {
+				next[k] = v
+			}
+		}
+		if next["allow_password"] == false && next["allow_magic_link"] != true && next["allow_passkeys"] != true {
+			refuse(409, "last_method", "the change would leave no way to sign in")
+			return true
+		}
+		f.Settings = next
+		reply(w, 200, map[string]any{"data": f.Settings})
+	case route == "GET /v1/oauth/clients":
+		reply(w, 200, map[string]any{"data": []any{map[string]any{"client_id": f.ClientID, "allow_persistent_sessions": persistent()}}, "total_count": 1})
+	case client != nil:
+		if client[1] != f.ClientID {
+			refuse(404, "client_not_found", "no such client")
+			return true
+		}
+		if on, ok := c.JSON["allow_persistent_sessions"].(bool); ok {
+			next := maps.Clone(f.Settings)
+			next["persistent_sessions"] = on
+			f.Settings = next
+		}
+		reply(w, 200, map[string]any{"data": map[string]any{"client_id": f.ClientID, "allow_persistent_sessions": persistent()}})
+	case route == "GET /v1/users":
+		q := strings.ToLower(c.Query.Get("q"))
+		data := []any{}
+		for _, u := range f.users {
+			if strings.Contains(strings.ToLower(u.Email), q) {
+				data = append(data, map[string]any{"id": u.Sub, "email": u.Email, "name": u.Name})
+			}
+		}
+		reply(w, 200, map[string]any{"data": data, "total_count": len(data)})
+	default: // DELETE /v1/users/{id}
+		u := f.users[user[1]]
+		if u == nil {
+			refuse(404, "user_not_found", "no such user")
+			return true
+		}
+		delete(f.users, user[1])
+		delete(f.passwords, u.Email)
+		w.WriteHeader(204)
+	}
+	return true
 }
