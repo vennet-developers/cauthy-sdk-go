@@ -1,4 +1,4 @@
-// Package cauthyecho is cauthy-sdk-go for Echo: Mount serves the auth-bff
+// Package cauthyecho is cauthy-sdk-go for Echo v5: Mount serves the auth-bff
 // routes and the published keys, Require verifies a bearer token, Protect
 // lets only a signed-in person through.
 package cauthyecho
@@ -6,7 +6,7 @@ package cauthyecho
 import (
 	"net/http"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	cauthy "github.com/vennet-developers/cauthy-sdk-go"
 )
 
@@ -25,7 +25,7 @@ func Mount(e *echo.Echo, auth *cauthy.Auth) {
 // the context (Identity, and cauthy.FromContext on the request's context).
 func Require(v *cauthy.Verifier) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			id, err := v.VerifyRequest(c.Request())
 			if err != nil {
 				status, h, body := cauthy.Refusal(err)
@@ -42,7 +42,7 @@ func Require(v *cauthy.Verifier) echo.MiddlewareFunc {
 }
 
 // Identity is the Identity Require attached.
-func Identity(c echo.Context) (*cauthy.Identity, bool) {
+func Identity(c *echo.Context) (*cauthy.Identity, bool) {
 	id, ok := c.Get(identityKey).(*cauthy.Identity)
 	return id, ok && id != nil
 }
@@ -51,7 +51,7 @@ func Identity(c echo.Context) (*cauthy.Identity, bool) {
 // is cauthy.SessionFromContext(c.Request().Context()).
 func Protect(auth *cauthy.Auth) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c *echo.Context) error {
 			var err error
 			passed := false
 			auth.Protect(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {

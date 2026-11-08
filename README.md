@@ -64,11 +64,12 @@ rest; the two modes never mix.
 | `net/http` | `mux.Handle("/api/auth/", auth)` and `mux.Handle(auth.JWKSPath(), auth)`, or `auth.Mount(mux)` |
 | chi | `r.Handle("/api/auth/*", auth)` and `r.Handle(auth.JWKSPath(), auth)`, or `auth.MountRouter(r)` |
 | Gin | `cauthygin.Mount(r, auth)` — `go get github.com/vennet-developers/cauthy-sdk-go/gin` |
-| Echo | `cauthyecho.Mount(e, auth)` — `go get github.com/vennet-developers/cauthy-sdk-go/echo` |
+| Echo v5 | `cauthyecho.Mount(e, auth)` — `go get github.com/vennet-developers/cauthy-sdk-go/echo` |
 | Fiber | `cauthyfiber.Mount(app, auth)` — `go get github.com/vennet-developers/cauthy-sdk-go/fiber` |
 
-The core, the example and the Fiber adapter need Go 1.24 or later; the Gin and
-Echo adapters need Go 1.26 (the golang.org/x/net they pull does). Fiber is
+The core, the example and the Fiber adapter need Go 1.24 or later; the Echo
+adapter (Echo v5) Go 1.25, and the Gin adapter Go 1.26 (the golang.org/x/net
+it pulls does). Fiber is
 fasthttp, and its adaptor buffers an answer whole: the push approval's event
 stream arrives at its end, and the page polls `/sign-in/mfa/push/finish`.
 

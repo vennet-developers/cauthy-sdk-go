@@ -12,8 +12,8 @@ jobs:
       fail-fast: false
       matrix:
         module: [., ./examples/acme-crm, ./gin, ./echo, ./fiber]
-        # The core says go 1.24, the oldest supported. Gin and Echo need 1.26
-        # (their fixed golang.org/x/net does), so they skip 1.24.
+        # The core says go 1.24, the oldest supported. Echo v5 needs 1.25 and
+        # Gin 1.26 (its fixed golang.org/x/net does), so both skip 1.24.
         go: ['1.24', '1.26', '1.27']
         exclude:
           - module: ./gin

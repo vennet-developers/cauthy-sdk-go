@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v5"
 	cauthy "github.com/vennet-developers/cauthy-sdk-go"
 	"github.com/vennet-developers/cauthy-sdk-go/cauthytest"
 )
@@ -21,7 +21,7 @@ func TestEchoServesTheProtocolAndProtects(t *testing.T) {
 	}
 	e := echo.New()
 	Mount(e, auth)
-	e.GET("/api/invoices", func(c echo.Context) error {
+	e.GET("/api/invoices", func(c *echo.Context) error {
 		s, _ := cauthy.SessionFromContext(c.Request().Context())
 		return c.JSON(200, map[string]any{"owner": s.User.ID})
 	}, Protect(auth))
@@ -43,7 +43,7 @@ func TestEchoServesTheProtocolAndProtects(t *testing.T) {
 func TestEchoRequireRefusesWithoutAToken(t *testing.T) {
 	v, _ := cauthy.NewVerifier(cauthy.VerifierConfig{Issuer: "https://id.example.com", Audience: "cauthy", Tenant: "8a6e0804-2bd0-4672-b79a-d97027f5f2a1"})
 	e := echo.New()
-	e.GET("/api/records", func(c echo.Context) error { return c.NoContent(204) }, Require(v))
+	e.GET("/api/records", func(c *echo.Context) error { return c.NoContent(204) }, Require(v))
 	res := cauthytest.NewBrowser("").Send(e, "GET", "/api/records", nil)
 	if res.StatusCode != 401 || cauthytest.JSON(res)["error"] == nil {
 		t.Fatalf("%d", res.StatusCode)
