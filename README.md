@@ -9,7 +9,7 @@ go get github.com/vennet-developers/cauthy-sdk-go
 ```
 
 It meets [cauthy-sdk-spec](https://github.com/vennet-developers/cauthy-sdk-spec)
-at `conformance/v0.3.0`: every token vector, and `cauthy-conformance --level switches`
+at `conformance/v0.4.0`: every token vector, and `cauthy-conformance --level switches`
 against the Acme CRM example, in CI on every commit.
 
 Locally, the dashboard switches too (the in-memory Cauthy serves its admin API):

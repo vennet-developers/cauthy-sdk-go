@@ -1,5 +1,5 @@
 # Every check CI runs, runnable on a laptop. SPEC_DIR is a cauthy-sdk-spec
-# checkout (default ../cauthy-sdk-spec) at the pinned commit (2f79a74fef1e1f31e72fd359ae7d96c32dbc7e28, conformance/v0.3.0).
+# checkout (default ../cauthy-sdk-spec) at the pinned commit (a9e45d986efc006b522d3f1aa8ca0f5e644b7964, conformance/v0.4.0).
 SPEC_DIR ?= ../cauthy-sdk-spec
 MODULES := . ./examples/acme-crm ./gin ./echo ./fiber ./internal/pgtest
 STATICCHECK := honnef.co/go/tools/cmd/staticcheck@v0.8.2
