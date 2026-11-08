@@ -125,7 +125,9 @@ func (a *Auth) leaveFor(r *http.Request, n asked, s step, returnTo string, h htt
 		if n.err != nil {
 			code = n.err.code
 		}
-		return failedTo(returnTo, code)
+		// A session renewed on the way here is kept: its old refresh token
+		// is spent.
+		return failedTo(returnTo, code, h.Values("Set-Cookie")...)
 	}
 	s.Token = str(at(n.data, "state"))
 	return redirect(target, append(h.Values("Set-Cookie"), a.stepCookieFor(r, s, stepSeconds))...)
@@ -162,7 +164,7 @@ func (a *Auth) providerCallback(r *http.Request, route string) *reply {
 		}
 		n := a.ask(r, http.MethodGet, "/v1/auth/anonymous/upgrade/"+p+"/callback?"+v.Encode(), nil, askOpts{bearer: mine.token})
 		if n.err != nil {
-			return failedTo(back, n.err.code, clear)
+			return failedTo(back, n.err.code, append(mine.header.Values("Set-Cookie"), clear)...)
 		}
 		_, was, _ := a.read(r)
 		return a.signedInBack(r, n.data, was, back, clear)
@@ -173,7 +175,7 @@ func (a *Auth) providerCallback(r *http.Request, route string) *reply {
 		}
 		n := a.ask(r, http.MethodGet, "/v1/auth/identities/"+p+"/link/callback?"+v.Encode(), nil, askOpts{bearer: mine.token})
 		if n.err != nil {
-			return failedTo(back, n.err.code, clear)
+			return failedTo(back, n.err.code, append(mine.header.Values("Set-Cookie"), clear)...)
 		}
 		return redirect(withQuery(back, "linked", p), append(mine.header.Values("Set-Cookie"), clear)...)
 	}

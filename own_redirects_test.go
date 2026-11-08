@@ -1,9 +1,11 @@
 package cauthy
 
 import (
+	"net/http"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vennet-developers/cauthy-sdk-go/cauthytest"
 )
@@ -91,5 +93,48 @@ func TestLinksAProviderToTheSignedInAccount(t *testing.T) {
 	b.Send(a, "GET", "/api/auth/me/identities/link/google?return_to=/settings", nil)
 	if res := b.Send(a, "GET", "/api/auth/callback/google?code=c&state=s9", nil); res.Header.Get("Location") != "/settings?linked=google" {
 		t.Fatalf("%v", res.Header)
+	}
+}
+
+// renewedCookie is the new session cookie an answer sets, or "".
+func renewedCookie(res *http.Response) string {
+	for _, c := range res.Header.Values("Set-Cookie") {
+		if strings.HasPrefix(c, "cauthy_session.0=") && !strings.HasPrefix(c, "cauthy_session.0=;") {
+			return c
+		}
+	}
+	return ""
+}
+
+// A session renewed on the way out to a provider, or on the way back, is
+// kept even when the provider step fails: the old refresh token is spent.
+func TestAJustRenewedSessionSurvivesAFailedProviderStep(t *testing.T) {
+	clk := &sessionClock{t: time.Now()}
+	a, f := ownAuth(t, func(o *Options) { o.Now = clk.now })
+	refuseStart := true
+	f.On("GET /v1/auth/identities/google/link", func(cauthytest.Call) cauthytest.Reply {
+		if refuseStart {
+			return cauthytest.Refuse(409, "identity_taken", "That account is linked elsewhere.")
+		}
+		return cauthytest.Data(map[string]any{"redirect_url": "https://accounts.example.com/o", "state": "s9"})
+	})
+	f.On("GET /v1/auth/identities/google/link/callback", func(cauthytest.Call) cauthytest.Reply {
+		return cauthytest.Refuse(409, "identity_taken", "That account is linked elsewhere.")
+	})
+	b := cauthytest.NewBrowser("")
+	signInOwn(t, a, b)
+
+	clk.add(time.Hour) // the access token ran out: the next call renews it
+	res := b.Send(a, "GET", "/api/auth/me/identities/link/google?return_to=/settings", nil)
+	if !strings.Contains(res.Header.Get("Location"), "auth_error=identity_taken") || renewedCookie(res) == "" {
+		t.Fatalf("leaving for the provider failed and dropped the renewed session: %v", res.Header)
+	}
+
+	refuseStart = false
+	b.Send(a, "GET", "/api/auth/me/identities/link/google?return_to=/settings", nil)
+	clk.add(time.Hour)
+	res = b.Send(a, "GET", "/api/auth/callback/google?code=c&state=s9", nil)
+	if !strings.Contains(res.Header.Get("Location"), "auth_error=identity_taken") || renewedCookie(res) == "" {
+		t.Fatalf("the provider's answer failed and dropped the renewed session: %v", res.Header)
 	}
 }
