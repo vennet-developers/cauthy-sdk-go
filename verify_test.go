@@ -2,6 +2,7 @@ package cauthy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -135,5 +136,47 @@ func TestVerifyWithAllowSystemWantsANamedSystem(t *testing.T) {
 	id, err = allow.VerifyAt(context.Background(), token(t, nil), now)
 	if err != nil || id.IsSystem || id.System != "" {
 		t.Fatalf("a person's token: %+v %v", id, err)
+	}
+}
+
+func TestVerifyRefusesAClientsOwnTokenUnlessTold(t *testing.T) {
+	// A client_credentials token: token_use "client", the client's public id,
+	// no email. The presence of token_use is the mark, whatever its value.
+	for _, use := range []string{"client", "", "person"} {
+		tok := token(t, map[string]any{"token_use": use, "client_id": "acme-billing", "email": nil})
+		if _, err := verifier(t, nil).VerifyAt(context.Background(), tok, now); reasonOf(err) != ClientToken {
+			t.Errorf("token_use %q: want client_token, got %v", use, err)
+		}
+	}
+	tok := token(t, map[string]any{"token_use": "client", "client_id": "acme-billing", "email": nil})
+	id, err := verifier(t, func(c *VerifierConfig) { c.AllowClientTokens = true }).VerifyAt(context.Background(), tok, now)
+	if err != nil || id.ClientID != "acme-billing" || id.AuthorizedParty != "" {
+		t.Fatalf("allowed: %+v, %v", id, err)
+	}
+	// A system's own token is refused as a system's, even with token_use.
+	both := token(t, map[string]any{"sys": "acme-crm", "token_use": "client"})
+	if _, err := verifier(t, func(c *VerifierConfig) { c.AllowClientTokens = true }).VerifyAt(context.Background(), both, now); reasonOf(err) != SystemToken {
+		t.Fatalf("sys and token_use: want system_token, got %v", err)
+	}
+}
+
+func TestVerifyTypesTokenUseAndAzp(t *testing.T) {
+	for _, claims := range []map[string]any{
+		{"token_use": json.RawMessage("null")},
+		{"token_use": 1},
+		{"azp": json.RawMessage("null")},
+		{"azp": []string{"acme-web"}},
+	} {
+		v := verifier(t, func(c *VerifierConfig) { c.AllowClientTokens = true })
+		if _, err := v.VerifyAt(context.Background(), token(t, claims), now); reasonOf(err) != InvalidClaim {
+			t.Errorf("%v: want invalid_claim, got %v", claims, err)
+		}
+	}
+}
+
+func TestVerifyReportsTheAuthorizedParty(t *testing.T) {
+	id, err := verifier(t, nil).VerifyAt(context.Background(), token(t, map[string]any{"azp": "acme-web"}), now)
+	if err != nil || id.AuthorizedParty != "acme-web" || id.ClientID != "" {
+		t.Fatalf("%+v, %v", id, err)
 	}
 }

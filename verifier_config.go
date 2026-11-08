@@ -32,6 +32,11 @@ type VerifierConfig struct {
 	// endpoint another system calls. Off by default: a system never stands
 	// for a person.
 	AllowSystem bool
+	// AllowClientTokens lets a client's own token through (a token_use
+	// claim, from a client_credentials grant; rule R13), for a backend that
+	// serves machines as well as people. Off by default: a machine never
+	// passes as a person. Identity.ClientID then names the client.
+	AllowClientTokens bool
 	// Leeway is the clock tolerance: nil is DefaultLeeway, a pointer to zero
 	// is none, at most MaxLeeway. LeewayOf makes the pointer.
 	Leeway *time.Duration

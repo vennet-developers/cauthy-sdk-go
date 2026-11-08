@@ -35,6 +35,12 @@ r.With(verifier.Require).Get("/api/records", func(w http.ResponseWriter, r *http
 ```
 
 By contract, `contract.Read` the graph and pass it to `cauthy.VerifierConfigFromContract`.
+A system's own token (`sys`), a client's own token (`token_use`, from a
+`client_credentials` grant: reason `client_token`) and a guest's token are refused
+where a person is expected. An endpoint that machines call sets
+`AllowClientTokens: true`; `id.ClientID` is then the client's public id (and
+`id.Subject` its internal id). `id.AuthorizedParty` is the token's `azp`, the
+client a person's token was issued through.
 Every refused token answers the same `401 unauthenticated`; while Cauthy's keys
 have never been fetched, `503 unavailable`, so an outage signs nobody out.
 

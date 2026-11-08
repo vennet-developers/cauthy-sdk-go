@@ -40,6 +40,13 @@ type Identity struct {
 	// System is the sys claim of a system's own token: the system's name.
 	// Empty unless IsSystem.
 	System string
+	// AuthorizedParty is azp: the client a person's token was issued
+	// through. Empty when the token names none.
+	AuthorizedParty string
+	// ClientID is the token's client_id when it is a string: on a client's
+	// own token (only with AllowClientTokens), the client's public id; on an
+	// AI agent's, the agent's. Subject is then the client's internal id.
+	ClientID string
 	// ExpiresAt is exp, UTC.
 	ExpiresAt time.Time
 	// Token is the token as it arrived, to pass on. String, GoString and
@@ -54,12 +61,13 @@ type redacted struct {
 	Roles                          []string
 	Anonymous, IsSystem            bool
 	System                         string
+	AuthorizedParty, ClientID      string
 	ExpiresAt                      time.Time
 	Token                          string
 }
 
 func (id Identity) redacted() redacted {
-	r := redacted{id.Issuer, id.Subject, id.Tenant, id.Email, id.EmailVerified, id.Roles, id.Anonymous, id.IsSystem, id.System, id.ExpiresAt, ""}
+	r := redacted{id.Issuer, id.Subject, id.Tenant, id.Email, id.EmailVerified, id.Roles, id.Anonymous, id.IsSystem, id.System, id.AuthorizedParty, id.ClientID, id.ExpiresAt, ""}
 	if id.Token != "" {
 		r.Token = "[redacted]"
 	}
@@ -78,6 +86,7 @@ func (id Identity) LogValue() slog.Value {
 		slog.String("issuer", id.Issuer), slog.String("subject", id.Subject), slog.String("tenant", id.Tenant),
 		slog.String("email", id.Email), slog.Bool("email_verified", id.EmailVerified), slog.Any("roles", id.Roles),
 		slog.Bool("anonymous", id.Anonymous), slog.Bool("is_system", id.IsSystem), slog.String("system", id.System),
+		slog.String("authorized_party", id.AuthorizedParty), slog.String("client_id", id.ClientID),
 		slog.Time("expires_at", id.ExpiresAt),
 	)
 }
@@ -216,9 +225,13 @@ func (v *Verifier) VerifyAt(ctx context.Context, token string, now time.Time) (*
 	if c.tid != v.cfg.Tenant {
 		return nil, refuse(WrongTenant, "tid %q", c.tid)
 	}
-	// R13 — a system's own token never stands for a person.
+	// R13 — a system's own token never stands for a person, and a client's
+	// own token (token_use, by presence) only where the backend serves machines.
 	if c.sys && !v.cfg.AllowSystem {
 		return nil, refuse(SystemToken, "the token carries sys")
+	}
+	if c.tokenUse && !v.cfg.AllowClientTokens {
+		return nil, refuse(ClientToken, "the token carries token_use")
 	}
 	// R14 — a guest only where the backend allows guests.
 	if c.anon && !v.cfg.AllowAnonymous {
@@ -231,16 +244,18 @@ func (v *Verifier) VerifyAt(ctx context.Context, token string, now time.Time) (*
 	}
 	return &Identity{
 		Issuer: c.iss, Subject: c.sub, Tenant: c.tid, Email: c.email, EmailVerified: c.emailVerified, Roles: roles,
-		Anonymous: c.anon, IsSystem: c.sys, System: c.sysName, ExpiresAt: time.Unix(int64(c.exp), 0).UTC(), Token: token,
+		Anonymous: c.anon, IsSystem: c.sys, System: c.sysName, AuthorizedParty: c.azp, ClientID: c.clientID, ExpiresAt: time.Unix(int64(c.exp), 0).UTC(), Token: token,
 	}, nil
 }
 
 type claimSet struct {
 	iss, sub, tid, email, sysName string
+	azp, clientID                 string
 	aud, roles                    []string
 	exp, iat                      float64
 	nbf                           *float64
 	anon, sys, emailVerified      bool
+	tokenUse                      bool
 }
 
 // tokenByte reports whether b may appear in a compact JWS.
@@ -367,6 +382,18 @@ func readClaims(m map[string]json.RawMessage, allowSystem bool) (*claimSet, erro
 	}
 	if _, present := m["anon"]; present && !into("anon", &c.anon) {
 		return nil, bad("anon")
+	}
+	// token_use is a string when present, and refused by its presence (R13).
+	var use string
+	if _, c.tokenUse = m["token_use"]; c.tokenUse && !into("token_use", &use) {
+		return nil, bad("token_use")
+	}
+	if _, present := m["azp"]; present && !into("azp", &c.azp) {
+		return nil, bad("azp")
+	}
+	// client_id is no rule's claim: read only when it is a string.
+	if raw, present := m["client_id"]; present && len(raw) > 0 && raw[0] == '"' {
+		_ = json.Unmarshal(raw, &c.clientID)
 	}
 	var raw json.RawMessage
 	raw, c.sys = m["sys"]
