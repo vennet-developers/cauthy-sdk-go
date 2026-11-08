@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -195,7 +196,10 @@ func TestACancelledRequestStillCarriesTheProofAndStartsNoBackoff(t *testing.T) {
 		}
 		return cauthytest.Reply{Status: 200, Body: map[string]any{"access_token": "sys-token", "token_type": "Bearer", "expires_in": 600}}
 	})
-	a, err := contractAuth(t, f, keys.Memory(), false)
+	// A transport that gives up on a cancelled context, as net/http's does.
+	client := &http.Client{Transport: cancellable{f.Client().Transport}}
+	a, err := New(Options{Contract: &Contract{Graph: acmeGraph(f, false), System: "acme-crm"}, Keys: keys.Memory(), RootKey: testRootKey,
+		HTTPClient: client, Getenv: noEnv, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,4 +213,15 @@ func TestACancelledRequestStillCarriesTheProofAndStartsNoBackoff(t *testing.T) {
 	if h.Get("X-Cauthy-System-Token") == "" || !backoff.IsZero() {
 		t.Fatalf("proof %v, backoff until %v", h, backoff)
 	}
+}
+
+// cancellable refuses a request whose context has ended, as a real
+// transport does; the in-memory one answers regardless.
+type cancellable struct{ next http.RoundTripper }
+
+func (c cancellable) RoundTrip(r *http.Request) (*http.Response, error) {
+	if err := r.Context().Err(); err != nil {
+		return nil, err
+	}
+	return c.next.RoundTrip(r)
 }
