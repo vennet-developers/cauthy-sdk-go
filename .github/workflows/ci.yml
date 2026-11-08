@@ -12,13 +12,16 @@ jobs:
       fail-fast: false
       matrix:
         module: [., ./examples/acme-crm, ./gin, ./echo, ./fiber]
-        # The core says go 1.24, the oldest supported. Echo v5 needs 1.25 and
-        # Gin 1.26 (its fixed golang.org/x/net does), so both skip 1.24.
+        # The core says go 1.24, the oldest supported. The adapters need more
+        # (Echo v5 and Fiber's fixed dependencies 1.25, Gin's fixed
+        # golang.org/x/net 1.26), so they skip 1.24.
         go: ['1.24', '1.26', '1.27']
         exclude:
           - module: ./gin
             go: '1.24'
           - module: ./echo
+            go: '1.24'
+          - module: ./fiber
             go: '1.24'
     defaults:
       run:
@@ -37,6 +40,9 @@ jobs:
         # staticcheck v0.8.2 needs Go 1.26 or later.
         if: matrix.go == '1.27'
         run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+      - name: no known advisory in any module it requires
+        if: matrix.go == '1.27'
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -scan module
       - run: go test -race -count=1 ./...
       - name: the core module has no dependency
         if: matrix.module == '.'

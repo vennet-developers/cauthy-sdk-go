@@ -28,7 +28,7 @@ jobs:
           dir=${GITHUB_REF_NAME%%/*}
           ! grep -q '^replace' "$dir/go.mod"
           (cd "$dir" && GOWORK=off go test -race -count=1 ./...)
-      - run: make fmt vet lint test
+      - run: make fmt vet lint vulncheck test
       - run: SPEC_DIR=spec sh scripts/check-spec.sh
       - run: go test -count=1 -run 'TestVectors|TestEveryRouteOfTheTableIsServed' .
       - name: no version is tagged without strict conformance

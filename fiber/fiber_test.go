@@ -16,6 +16,11 @@ import (
 type handler struct{ app *fiber.App }
 
 func (h handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// app.Test writes the request out with httputil.DumpRequest, which drops
+	// the Host header for an absolute request URI, and fasthttp refuses a
+	// request without one: send it in origin form, as a browser does.
+	r = r.Clone(r.Context())
+	r.RequestURI = r.URL.RequestURI()
 	res, err := h.app.Test(r, -1)
 	if err != nil {
 		http.Error(w, err.Error(), 500)

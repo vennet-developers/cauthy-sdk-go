@@ -3,10 +3,11 @@
 SPEC_DIR ?= ../cauthy-sdk-spec
 MODULES := . ./examples/acme-crm ./gin ./echo ./fiber ./internal/pgtest
 STATICCHECK := honnef.co/go/tools/cmd/staticcheck@v0.8.2
+GOVULNCHECK := golang.org/x/vuln/cmd/govulncheck@v1.9.0
 
-.PHONY: all fmt vet lint test vectors spec conformance tidy pgtest
+.PHONY: all fmt vet lint vulncheck test vectors spec conformance tidy pgtest
 
-all: fmt vet lint test vectors conformance
+all: fmt vet lint vulncheck test vectors conformance
 
 fmt:
 	@test -z "$$(gofmt -l .)" || { gofmt -l .; echo "run gofmt -w ."; exit 1; }
@@ -16,6 +17,10 @@ vet:
 
 lint:
 	@for m in $(MODULES); do (cd $$m && go run $(STATICCHECK) ./...) || exit 1; done
+
+# No module ships with a known advisory, called or not.
+vulncheck:
+	@for m in $(MODULES); do (cd $$m && go run $(GOVULNCHECK) -scan module) || exit 1; done
 
 # internal/pgtest skips without CAUTHY_TEST_POSTGRES_DSN (see pgtest).
 test:

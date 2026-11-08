@@ -67,9 +67,9 @@ rest; the two modes never mix.
 | Echo v5 | `cauthyecho.Mount(e, auth)` — `go get github.com/vennet-developers/cauthy-sdk-go/echo` |
 | Fiber | `cauthyfiber.Mount(app, auth)` — `go get github.com/vennet-developers/cauthy-sdk-go/fiber` |
 
-The core, the example and the Fiber adapter need Go 1.24 or later; the Echo
-adapter (Echo v5) Go 1.25, and the Gin adapter Go 1.26 (the golang.org/x/net
-it pulls does). Fiber is
+The core and the example need Go 1.24 or later; the Echo (Echo v5) and Fiber
+adapters Go 1.25, and the Gin adapter Go 1.26 (the golang.org/x/net it pulls
+does). Every module is held free of known advisories (govulncheck). Fiber is
 fasthttp, and its adaptor buffers an answer whole: the push approval's event
 stream arrives at its end, and the page polls `/sign-in/mfa/push/finish`.
 
