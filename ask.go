@@ -1,7 +1,9 @@
 package cauthy
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 )
@@ -88,7 +90,9 @@ func (a *Auth) ask(r *http.Request, method, path string, payload any, o askOpts)
 // passedOn is what proves the application to Cauthy on a person's behalf:
 // its own token, its origin, and the person's address. Nothing when the
 // application is no system or Cauthy could not give it a token; then it is
-// not asked again for 30 seconds.
+// not asked again for 30 seconds. The token is asked for detached from the
+// browser's request (the system client's own deadline still applies): a
+// browser that goes away neither loses the proof nor starts the 30 seconds.
 func (a *Auth) passedOn(r *http.Request) http.Header {
 	a.cacheMu.Lock()
 	wait := a.now().Before(a.noProofTill)
@@ -96,7 +100,10 @@ func (a *Auth) passedOn(r *http.Request) http.Header {
 	if wait {
 		return nil
 	}
-	tok, err := a.sys.Token(r.Context())
+	tok, err := a.sys.Token(context.WithoutCancel(r.Context()))
+	if errors.Is(err, context.Canceled) {
+		return nil
+	}
 	if err != nil {
 		a.cacheMu.Lock()
 		a.noProofTill = a.now().Add(30 * time.Second)

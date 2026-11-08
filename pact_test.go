@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -179,5 +180,33 @@ func TestTheCallbackHearsCauthyRefuseAnUnconfirmedAddress(t *testing.T) {
 	if res.StatusCode != 302 || res.Header.Get("Location") != "/?auth_error=email_not_confirmed" || !cleared["cauthy_session_flow"] || !cleared["cauthy_session_again"] ||
 		b.Jar["cauthy_session.0"] != "" || res.Header.Get("Cauthy-Protocol") != "1" {
 		t.Fatalf("%d %v", res.StatusCode, res.Header)
+	}
+}
+
+// A browser that goes away must not cost the next 30 seconds of sign-ins
+// their system proof: the proof is asked for detached from the request (its
+// own deadline still applies), and a cancelled request never starts the
+// backoff.
+func TestACancelledRequestStillCarriesTheProofAndStartsNoBackoff(t *testing.T) {
+	f := cauthytest.New()
+	f.On("POST /v1/oauth/token", func(c cauthytest.Call) cauthytest.Reply {
+		if c.Form.Get("grant_type") != "client_credentials" || c.Form.Get("client_assertion") == "" {
+			return cauthytest.Reply{Status: 400, Body: map[string]any{"error": "invalid_request"}}
+		}
+		return cauthytest.Reply{Status: 200, Body: map[string]any{"access_token": "sys-token", "token_type": "Bearer", "expires_in": 600}}
+	})
+	a, err := contractAuth(t, f, keys.Memory(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	r := httptest.NewRequest("POST", "https://app.test/api/auth/sign-in/email", nil).WithContext(ctx)
+	h := a.passedOn(r)
+	a.cacheMu.Lock()
+	backoff := a.noProofTill
+	a.cacheMu.Unlock()
+	if h.Get("X-Cauthy-System-Token") == "" || !backoff.IsZero() {
+		t.Fatalf("proof %v, backoff until %v", h, backoff)
 	}
 }
