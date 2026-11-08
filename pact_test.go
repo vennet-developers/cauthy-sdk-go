@@ -150,3 +150,34 @@ func TestAnUnconfirmedAddressIsRefusedOnTheOwnScreensAsEmailNotConfirmed(t *test
 		t.Fatalf("%d %v %v", res.StatusCode, body, b.Jar)
 	}
 }
+
+// Ported from @cauthyhq/node's verified-email.test.ts: Cauthy refuses at the
+// token endpoint (400 email_not_confirmed) when the client requires a
+// confirmed address, and the callback answers as when this side finds it.
+func TestTheCallbackHearsCauthyRefuseAnUnconfirmedAddress(t *testing.T) {
+	f := cauthytest.New()
+	f.On("POST /v1/oauth/token", func(c cauthytest.Call) cauthytest.Reply {
+		if c.Form.Get("grant_type") == "authorization_code" {
+			return cauthytest.Reply{Status: 400, Body: map[string]any{"error": "email_not_confirmed", "error_description": "the person has not confirmed their email address"}}
+		}
+		return cauthytest.Reply{Status: 400, Body: map[string]any{"error": "invalid_grant"}}
+	})
+	a, err := contractAuth(t, f, keys.Memory(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := cauthytest.NewBrowser("")
+	res := b.Send(a, "GET", "/api/auth/login?return_to=/x", nil)
+	back, _ := f.Authorize(res.Header.Get("Location"), "u-member")
+	res = b.Send(a, "GET", strings.TrimPrefix(back, "https://app.test"), nil)
+	cleared := map[string]bool{}
+	for _, c := range res.Header.Values("Set-Cookie") {
+		if strings.Contains(c, "Max-Age=0") {
+			cleared[strings.SplitN(c, "=", 2)[0]] = true
+		}
+	}
+	if res.StatusCode != 302 || res.Header.Get("Location") != "/?auth_error=email_not_confirmed" || !cleared["cauthy_session_flow"] || !cleared["cauthy_session_again"] ||
+		b.Jar["cauthy_session.0"] != "" || res.Header.Get("Cauthy-Protocol") != "1" {
+		t.Fatalf("%d %v", res.StatusCode, res.Header)
+	}
+}

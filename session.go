@@ -206,8 +206,10 @@ func (a *Auth) fetch(ctx context.Context, method, target string, header http.Hea
 func (n answer) ok() bool { return n.err == nil && n.status >= 200 && n.status < 300 }
 
 // token asks Cauthy's token endpoint. ended is true when Cauthy answered 4xx:
-// the grant is no good. Anything else is a failure to ask.
-func (a *Auth) token(ctx context.Context, form url.Values, proof http.Header) (body any, ok, ended bool) {
+// the grant is no good, and code is the OAuth error it named
+// ("email_not_confirmed", "invalid_grant"…). Anything else is a failure to
+// ask.
+func (a *Auth) token(ctx context.Context, form url.Values, proof http.Header) (body any, ok, ended bool, code string) {
 	form.Set("client_id", a.clientID)
 	if a.clientSecret != "" {
 		form.Set("client_secret", a.clientSecret)
@@ -218,9 +220,13 @@ func (a *Auth) token(ctx context.Context, form url.Values, proof http.Header) (b
 	}
 	n := a.fetch(ctx, http.MethodPost, a.issuer+"/v1/oauth/token", h, []byte(form.Encode()))
 	if n.ok() {
-		return n.body, true, false
+		return n.body, true, false, ""
 	}
-	return nil, false, n.err == nil && n.status >= 400 && n.status < 500
+	ended = n.err == nil && n.status >= 400 && n.status < 500
+	if ended {
+		code = str(at(n.body, "error"))
+	}
+	return nil, false, ended, code
 }
 
 type who struct {
@@ -399,7 +405,7 @@ func (a *Auth) renew(ctx context.Context, was *stored) (*stored, renewOutcome) {
 }
 
 func (a *Auth) renewOnce(ctx context.Context, was *stored) (*stored, renewOutcome) {
-	body, ok, ended := a.token(ctx, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {was.RT}}, nil)
+	body, ok, ended, _ := a.token(ctx, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {was.RT}}, nil)
 	if !ok {
 		if ended {
 			return nil, renewEnded

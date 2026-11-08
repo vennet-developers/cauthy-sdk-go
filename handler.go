@@ -204,18 +204,29 @@ func (a *Auth) callback(r *http.Request) *reply {
 	if code == "" {
 		return a.failedSignIn(r, "no_code")
 	}
-	body, okay, _ := a.token(r.Context(), url.Values{"grant_type": {"authorization_code"}, "code": {code},
+	body, okay, _, refusal := a.token(r.Context(), url.Values{"grant_type": {"authorization_code"}, "code": {code},
 		"redirect_uri": {a.originOf(r) + a.basePath + "/callback"}, "code_verifier": {f.Verifier}}, a.passedOn(r))
-	if !okay {
-		return a.failedSignIn(r, "exchange_failed")
-	}
-	s, err := a.toStored(r.Context(), body, nil)
-	if errors.Is(err, errEmailNotConfirmed) {
+	// Back to the application's sign-in page with the reason, and the
+	// question forgotten.
+	unconfirmed := func() *reply {
 		page := a.pages.SignIn
 		if page == "" {
 			page = "/"
 		}
 		return redirect(withQuery(page, "auth_error", "email_not_confirmed"), clearFlow, writeCookie(a.againCookie, "", a.attrs(r).age(0)))
+	}
+	// Cauthy refuses at the token endpoint when the client requires a
+	// confirmed address…
+	if !okay && refusal == "email_not_confirmed" {
+		return unconfirmed()
+	}
+	if !okay {
+		return a.failedSignIn(r, "exchange_failed")
+	}
+	// …and this side checks too, should an older Cauthy not.
+	s, err := a.toStored(r.Context(), body, nil)
+	if errors.Is(err, errEmailNotConfirmed) {
+		return unconfirmed()
 	}
 	if s == nil {
 		return a.failedSignIn(r, "exchange_failed")
