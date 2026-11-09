@@ -20,11 +20,18 @@ func (a *Auth) Pact() *Pact { return a.pact }
 // Contract is what the link in the graph says.
 func (p *Pact) Contract() *contract.Resolved { return p.auth.contract }
 
-// Keys are the application's own keys: Current, Published, Rotate, Reseal.
+// Keys are the application's own keys kept in a store (the legacy path):
+// Current, Published, Rotate, Reseal. nil on CAUTHY_KEY without Keys: the
+// key is CAUTHY_KEY's.
 func (p *Pact) Keys() *keys.Keys { return p.auth.ownKeys }
 
-// JWKS serves the published keys (Auth serves them at JWKSPath too).
-func (p *Pact) JWKS() http.Handler { return p.auth.ownKeys.Handler() }
+// JWKS serves the published keys (Auth serves them at JWKSPath too): on
+// CAUTHY_KEY the key's public half, as EdDSA.
+func (p *Pact) JWKS() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		send(w, "", p.auth.jwksReply(r), true)
+	})
+}
 
 // Status is how the system stands against its contract, as Cauthy checks it
 // now. For a health endpoint.

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vennet-developers/cauthy-sdk-go/cauthykey"
 	"github.com/vennet-developers/cauthy-sdk-go/contract"
 	"github.com/vennet-developers/cauthy-sdk-go/internal/cfgerr"
 	"github.com/vennet-developers/cauthy-sdk-go/keys"
@@ -189,15 +190,18 @@ func New(o Options) (*Auth, error) {
 	if err != nil {
 		return nil, err
 	}
-	if k != nil && o.Contract == nil {
+	if k != nil {
 		a.keyed = k
 		a.issuer, a.clientID = k.key.Issuer, k.key.ClientID
 	}
 
 	var root, previous string
 	if o.Contract != nil {
-		if err := contract.FailClosed(getenv); err != nil {
-			return nil, err
+		// On CAUTHY_KEY, byKey refused the variables the key replaces.
+		if a.keyed == nil {
+			if err := contract.FailClosed(getenv); err != nil {
+				return nil, err
+			}
 		}
 		for name, v := range map[string]bool{"ClientID": o.ClientID != "", "ClientSecret": o.ClientSecret != "", "Secret": o.Secret != "",
 			"System": o.System != "", "Tenant": o.Tenant != "", "SystemKey": o.SystemKey != nil} {
@@ -210,12 +214,20 @@ func New(o Options) (*Auth, error) {
 			return nil, err
 		}
 		a.contract = c
-		root, previous = or(o.RootKey, "PACT_ROOT_KEY"), or(o.RootKeyPrevious, "PACT_ROOT_KEY_PREVIOUS")
-		if root == "" {
-			return nil, cfgerr.New("RootKey (PACT_ROOT_KEY) is required with a contract: 32 random bytes, e.g. openssl rand -base64 32")
-		}
-		if c.ServiceClientID != "" && o.Keys == nil {
-			return nil, cfgerr.New("the link %s gives %s its own identity: pass Keys, where its key is kept (keys.Postgres(db))", c.Link, c.System)
+		if a.keyed != nil {
+			// The key names the graph's Cauthy; which client it may prove is
+			// Cauthy's to decide (the link's service client, or one adopted).
+			if a.keyed.key.Issuer != c.Issuer {
+				return nil, &cauthykey.Error{Reason: "key_contract_issuer", Msg: "CAUTHY_KEY: the key names " + a.keyed.key.Issuer + ", the contract's Cauthy is " + c.Issuer}
+			}
+		} else {
+			root, previous = or(o.RootKey, "PACT_ROOT_KEY"), or(o.RootKeyPrevious, "PACT_ROOT_KEY_PREVIOUS")
+			if root == "" {
+				return nil, cfgerr.New("CAUTHY_KEY is required with a contract: make it on the application's card in Cauthy's dashboard (or, until 2.0, RootKey: PACT_ROOT_KEY)")
+			}
+			if c.ServiceClientID != "" && o.Keys == nil {
+				return nil, cfgerr.New("the link %s gives %s its own identity: pass Keys, where its key is kept (keys.Postgres(db)), or move to CAUTHY_KEY, which needs none", c.Link, c.System)
+			}
 		}
 		a.issuer, a.clientID, a.system, a.tenant = withoutTrailingSlashes(o.Issuer), c.ClientID, c.System, c.Tenant
 		if a.issuer == "" {
@@ -234,7 +246,7 @@ func New(o Options) (*Auth, error) {
 	if a.clientID == "" {
 		return nil, cfgerr.New("clientId (CAUTHY_CLIENT_ID) is required")
 	}
-	if o.Contract != nil {
+	if a.keyed == nil && o.Contract != nil {
 		rings, err := keys.Derive(root, previous)
 		if err != nil {
 			return nil, err
@@ -255,8 +267,16 @@ func New(o Options) (*Auth, error) {
 			return nil, err
 		}
 		a.cookieRing, a.flowRing = rings.Cookie, rings.Flow
-		d := a.keyed.key.Derive()
-		a.signer = &system.Signer{ClientID: a.clientID, KID: d.KID, Key: d.Private}
+		// The key proves the key's client; by contract, the link's service
+		// client (none without a service block).
+		proves := a.clientID
+		if a.contract != nil {
+			proves = a.contract.ServiceClientID
+		}
+		if proves != "" {
+			d := a.keyed.key.Derive()
+			a.signer = &system.Signer{ClientID: proves, KID: d.KID, Key: d.Private}
+		}
 	} else {
 		secret := or(o.Secret, "CAUTHY_SECRET")
 		if len(secret) < 32 {
@@ -366,8 +386,11 @@ func New(o Options) (*Auth, error) {
 		}
 		a.pact = &Pact{auth: a}
 	}
+	if a.keyed != nil && a.contract != nil && a.contract.JWKSPath != "" {
+		a.pact = &Pact{auth: a}
+	}
 
-	if a.keyed != nil {
+	if a.keyed != nil && a.contract == nil {
 		// Who the application is, asked of Cauthy with its own token.
 		a.identity = newIdentitySource(a.issuer, a.sys.Token, a.http, a.now, a.log, a.signer.KID)
 		a.identity.start()

@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/vennet-developers/cauthy-sdk-go/cauthykey"
 	"github.com/vennet-developers/cauthy-sdk-go/keys"
 	"github.com/vennet-developers/cauthy-sdk-go/system"
 )
@@ -95,11 +96,26 @@ func (a *Auth) serve(r *http.Request, route string) *reply {
 	return notFound()
 }
 
-// jwksReply is the published keys, cacheable for keys.JWKSMaxAge.
+// jwksReply is the published keys, cacheable for keys.JWKSMaxAge: on
+// CAUTHY_KEY the key's public half (and the previous key's, while
+// rotating), then the key store's while it is still passed.
 func (a *Auth) jwksReply(r *http.Request) *reply {
-	set, err := a.ownKeys.Published(r.Context())
-	if err != nil {
-		return text(http.StatusServiceUnavailable, "The keys are unavailable right now.")
+	set := keys.JWKS{Keys: []map[string]any{}}
+	if a.keyed != nil {
+		for _, k := range []*cauthykey.Key{a.keyed.key, a.keyed.previous} {
+			if k == nil || (k != a.keyed.key && k.Secret == a.keyed.key.Secret) {
+				continue
+			}
+			d := k.Derive()
+			set.Keys = append(set.Keys, map[string]any{"kty": "OKP", "crv": "Ed25519", "x": d.X, "kid": d.KID, "alg": "EdDSA", "use": "sig"})
+		}
+	}
+	if a.ownKeys != nil {
+		stored, err := a.ownKeys.Published(r.Context())
+		if err != nil {
+			return text(http.StatusServiceUnavailable, "The keys are unavailable right now.")
+		}
+		set.Keys = append(set.Keys, stored.Keys...)
 	}
 	rep := ok(set, nil)
 	rep.header.Set("Cache-Control", fmt.Sprintf("public, max-age=%d", int(keys.JWKSMaxAge.Seconds())))
