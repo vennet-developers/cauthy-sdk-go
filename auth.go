@@ -235,7 +235,7 @@ func New(o Options) (*Auth, error) {
 			a.issuer = c.Issuer
 		}
 	} else if a.keyed == nil {
-		deprecated(a.log, "The CAUTHY_* variables", "Connect the application in Cauthy's dashboard and use the one variable CAUTHY_KEY.")
+		deprecated(a.log, "Variables mode (the CAUTHY_* variables)", "Connect the application in Cauthy's dashboard and use the one variable CAUTHY_KEY.")
 		a.issuer = withoutTrailingSlashes(or(o.Issuer, "CAUTHY_ISSUER"))
 		a.clientID = or(o.ClientID, "CAUTHY_CLIENT_ID")
 		a.clientSecret = or(o.ClientSecret, "CAUTHY_CLIENT_SECRET")

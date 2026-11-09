@@ -14,6 +14,9 @@ import (
 	"github.com/vennet-developers/cauthy-sdk-go/cauthykey"
 )
 
+// TenantID is the workspace's id GET /v1/connect/self answers.
+const TenantID = "8a6e0804-2bd0-4672-b79a-d97027f5f2a1"
+
 // fakeKey is a CAUTHY_KEY's public half, as Cauthy keeps it.
 type fakeKey struct {
 	pub      ed25519.PublicKey
@@ -151,7 +154,7 @@ func (f *Fake) self(w http.ResponseWriter, r *http.Request) {
 		urls = []string{}
 	}
 	body, _ := json.Marshal(map[string]any{"data": map[string]any{
-		"issuer": f.keyring[kid].issuer, "audience": f.keyring[kid].issuer, "tenant": map[string]any{"id": "t1", "slug": f.Tenant},
+		"issuer": f.keyring[kid].issuer, "audience": f.keyring[kid].issuer, "tenant": map[string]any{"id": TenantID, "slug": f.Tenant},
 		"system": f.System, "client_id": f.keyring[kid].clientID, "sign_in_client_id": f.keyring[kid].clientID,
 		"app_urls": urls, "callback_path": "/api/auth/callback", "key": map[string]any{"kid": kid, "retires_at": nil}, "contract": nil,
 	}})
