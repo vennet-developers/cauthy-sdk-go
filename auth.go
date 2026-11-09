@@ -3,6 +3,8 @@ package cauthy
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -44,11 +46,19 @@ type Timeouts struct {
 	Request time.Duration
 }
 
-// Options configure Auth. In variables mode every field left empty is read
-// from its CAUTHY_* variable; in contract mode (Contract set) the issuer, the
-// workspace and the clients come from the contract, and none of the
-// CAUTHY_* variables may be set.
+// Options configure Auth. On CAUTHY_KEY (Key, or the variable) everything
+// else comes from the key and from Cauthy, and none of KeyReplaces may be
+// set. In variables mode every field left empty is read from its CAUTHY_*
+// variable; in contract mode (Contract set) the issuer, the workspace and
+// the clients come from the contract, and none of the CAUTHY_* variables may
+// be set.
 type Options struct {
+	// Key is the application's CAUTHY_KEY, made in Cauthy's dashboard.
+	// Default: the CAUTHY_KEY variable. With it, nothing else is read.
+	Key string
+	// KeyPrevious is the key being replaced, while rotating. Default:
+	// CAUTHY_KEY_PREVIOUS. Its sessions are read, never written.
+	KeyPrevious string
 	// Issuer is Cauthy's address, e.g. https://id.example.com. CAUTHY_ISSUER.
 	Issuer string
 	// ClientID is the application's OAuth client. CAUTHY_CLIENT_ID.
@@ -128,6 +138,13 @@ type Auth struct {
 	now                                             func() time.Time
 	pact                                            *Pact
 
+	// CAUTHY_KEY (keymode.go)
+	keyed    *keyed
+	signer   *system.Signer
+	identity *identitySource
+	idMu     sync.RWMutex // guards tenant and system on CAUTHY_KEY, and adopted
+	adopted  *AppIdentity
+
 	renewMu  sync.Mutex
 	renewing map[string]*renewal
 
@@ -168,6 +185,15 @@ func New(o Options) (*Auth, error) {
 		a.replay = MemoryReplay(a.now)
 	}
 
+	k, err := byKey(o, getenv)
+	if err != nil {
+		return nil, err
+	}
+	if k != nil && o.Contract == nil {
+		a.keyed = k
+		a.issuer, a.clientID = k.key.Issuer, k.key.ClientID
+	}
+
 	var root, previous string
 	if o.Contract != nil {
 		if err := contract.FailClosed(getenv); err != nil {
@@ -195,7 +221,7 @@ func New(o Options) (*Auth, error) {
 		if a.issuer == "" {
 			a.issuer = c.Issuer
 		}
-	} else {
+	} else if a.keyed == nil {
 		a.issuer = withoutTrailingSlashes(or(o.Issuer, "CAUTHY_ISSUER"))
 		a.clientID = or(o.ClientID, "CAUTHY_CLIENT_ID")
 		a.clientSecret = or(o.ClientSecret, "CAUTHY_CLIENT_SECRET")
@@ -217,6 +243,20 @@ func New(o Options) (*Auth, error) {
 		if o.Keys != nil {
 			a.ownKeys = keys.New(o.Keys, rings.Seal, a.now)
 		}
+	} else if a.keyed != nil {
+		// The secret segment is the root of the cookie and flow keys
+		// (key/cauthy-key.md §4); the previous key's are read, never written.
+		prev := ""
+		if a.keyed.previous != nil {
+			prev = a.keyed.previous.Secret
+		}
+		rings, err := keys.Derive(a.keyed.key.Secret, prev)
+		if err != nil {
+			return nil, err
+		}
+		a.cookieRing, a.flowRing = rings.Cookie, rings.Flow
+		d := a.keyed.key.Derive()
+		a.signer = &system.Signer{ClientID: a.clientID, KID: d.KID, Key: d.Private}
 	} else {
 		secret := or(o.Secret, "CAUTHY_SECRET")
 		if len(secret) < 32 {
@@ -296,7 +336,9 @@ func New(o Options) (*Auth, error) {
 		// A change the application makes to who belongs where empties the
 		// organizations read: a person added a moment ago sees it on the next page.
 		Changed: func() { a.forgetOrganizations("") }}
-	if o.Contract == nil {
+	if a.signer != nil {
+		so.Signer, so.SystemOf = a.signer, a.systemName
+	} else if o.Contract == nil {
 		so.Key = o.SystemKey
 		if so.Key == nil && getenv("CAUTHY_SYSTEM_KEY") != "" {
 			so.Key = &system.Key{PrivateKey: getenv("CAUTHY_SYSTEM_KEY"), KeyID: getenv("CAUTHY_SYSTEM_KEY_ID")}
@@ -323,6 +365,24 @@ func New(o Options) (*Auth, error) {
 			return nil, err
 		}
 		a.pact = &Pact{auth: a}
+	}
+
+	if a.keyed != nil {
+		// Who the application is, asked of Cauthy with its own token.
+		a.identity = newIdentitySource(a.issuer, a.sys.Token, a.http, a.now, a.log, a.signer.KID)
+		a.identity.start()
+		ctx, cancel := context.WithTimeout(context.Background(), keyStartWait)
+		defer cancel()
+		id, err := a.identity.Wait(ctx)
+		switch {
+		case errors.Is(err, ErrMisconfigured):
+			// A refusal is a configuration error: starting would only answer 503.
+			return nil, fmt.Errorf("%w (kid %s)", ErrMisconfigured, a.signer.KID)
+		case err != nil:
+			a.log.Warn("cauthy: Cauthy cannot be reached yet; " + a.basePath + " answers 503 until it can")
+		default:
+			a.adopt(id)
+		}
 	}
 	return a, nil
 }
@@ -359,18 +419,18 @@ type timed struct {
 
 // originOf is the application's public origin: BaseURL, or the request's
 // own with the scheme a TLS-terminating proxy names.
+// On CAUTHY_KEY, without BaseURL, it is one of the addresses Cauthy lists
+// for the application (registeredOrigin).
 func (a *Auth) originOf(r *http.Request) string {
 	if a.baseURL != "" {
 		return a.baseURL
 	}
-	proto := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]))
-	if proto != "https" && proto != "http" {
-		proto = "http"
-		if r.TLS != nil {
-			proto = "https"
-		}
+	asked := requestOrigin(r)
+	if a.identity != nil {
+		origin, _ := a.registeredOrigin(asked)
+		return origin
 	}
-	return proto + "://" + r.Host
+	return asked
 }
 
 // attrs are the cookie attributes for r: Secure on an https origin.

@@ -276,6 +276,13 @@ func (t transport) RoundTrip(r *http.Request) (*http.Response, error) {
 	return res, nil
 }
 
+// SetDown sets Down, safely while the fake serves.
+func (f *Fake) SetDown(down bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.Down = down
+}
+
 func (f *Fake) isDown() bool { f.mu.Lock(); defer f.mu.Unlock(); return f.Down }
 
 func reply(w http.ResponseWriter, status int, body any) {

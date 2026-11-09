@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vennet-developers/cauthy-sdk-go/cauthykey"
 	"github.com/vennet-developers/cauthy-sdk-go/internal/jose"
 )
 
@@ -77,7 +78,7 @@ func (m *memoryReplay) Claim(_ context.Context, key string, until time.Time) (bo
 
 // WebhookOptions configure VerifyWebhook.
 type WebhookOptions struct {
-	// Issuer is Cauthy's address. Default CAUTHY_ISSUER.
+	// Issuer is Cauthy's address. Default: CAUTHY_KEY's, else CAUTHY_ISSUER.
 	Issuer string
 	// URL is this endpoint's public address, exactly as registered in
 	// Cauthy. Default: the request's URL without its query.
@@ -120,7 +121,11 @@ func requestURL(r *http.Request) string {
 func VerifyWebhook(r *http.Request, o WebhookOptions) (*Event, error) {
 	issuer := withoutTrailingSlashes(o.Issuer)
 	if issuer == "" {
-		issuer = withoutTrailingSlashes(os.Getenv("CAUTHY_ISSUER"))
+		if k, err := cauthykey.Parse(os.Getenv("CAUTHY_KEY")); err == nil {
+			issuer = k.Issuer
+		} else {
+			issuer = withoutTrailingSlashes(os.Getenv("CAUTHY_ISSUER"))
+		}
 	}
 	if issuer == "" {
 		return nil, &WebhookError{"issuer (CAUTHY_ISSUER) is not set"}

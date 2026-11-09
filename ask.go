@@ -36,7 +36,7 @@ type askOpts struct {
 // workspace, the client, the system's proof, and what the browser said of
 // language, captcha and agent.
 func (a *Auth) ask(r *http.Request, method, path string, payload any, o askOpts) asked {
-	h := http.Header{"X-Tenant-Key": {a.tenant}, "Accept": {"application/json"}}
+	h := http.Header{"X-Tenant-Key": {a.tenantSlug()}, "Accept": {"application/json"}}
 	if o.page != "" {
 		h.Set("X-Cauthy-Link-To", a.originOf(r)+o.page)
 	} else {

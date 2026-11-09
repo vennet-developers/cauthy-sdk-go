@@ -48,6 +48,9 @@ var ErrUnavailable = errors.New("cauthy: Cauthy cannot be reached yet")
 // never registered. The auth routes answer 503 misconfigured.
 var ErrMisconfigured = errors.New("cauthy: Cauthy refuses this application's key: make a new one in Cauthy's dashboard")
 
+// identityRetry is the backoff between first asks; the last repeats.
+var identityRetry = []time.Duration{time.Second, 2 * time.Second, 5 * time.Second, 10 * time.Second, 30 * time.Second}
+
 // revalidateEvery is how often the identity is asked again (If-None-Match).
 const revalidateEvery = 5 * time.Minute
 
@@ -75,7 +78,7 @@ type identitySource struct {
 
 func newIdentitySource(issuer string, token func(context.Context) (string, error), hc *http.Client, now func() time.Time, log *slog.Logger, kid string) *identitySource {
 	return &identitySource{issuer: issuer, token: token, http: hc, now: now, log: log, kid: kid,
-		retry: []time.Duration{time.Second, 2 * time.Second, 5 * time.Second, 10 * time.Second, 30 * time.Second},
+		retry: identityRetry,
 		ready: make(chan struct{})}
 }
 

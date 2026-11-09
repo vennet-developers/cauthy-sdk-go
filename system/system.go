@@ -3,14 +3,16 @@
 // members, invitations, permission checks, and how it stands against its
 // Pact contract.
 //
-// It proves who it is with the client's secret, or with a key it holds:
-// a key of its own given as Options.Key, or, by contract, the keys it keeps
-// itself (keys.Keys), signing a private_key_jwt assertion (RFC 7523).
+// It proves who it is with the client's secret, or with a key it holds,
+// signing a private_key_jwt assertion (RFC 7523): the Ed25519 key derived
+// from CAUTHY_KEY (Options.Signer), a key of its own given as Options.Key,
+// or, by contract, the keys it keeps itself (keys.Keys).
 package system
 
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
@@ -27,6 +29,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vennet-developers/cauthy-sdk-go/cauthykey"
 	"github.com/vennet-developers/cauthy-sdk-go/internal/cfgerr"
 	"github.com/vennet-developers/cauthy-sdk-go/internal/jose"
 	"github.com/vennet-developers/cauthy-sdk-go/keys"
@@ -52,18 +55,49 @@ type Key struct {
 	ClientID string
 }
 
+// Signer is the Ed25519 key an application on CAUTHY_KEY proves itself with
+// (key/cauthy-key.md §6). String and GoString never show the key.
+type Signer struct {
+	// ClientID is the client the key belongs to.
+	ClientID string
+	// KID is the key's RFC 7638 thumbprint.
+	KID string
+	Key ed25519.PrivateKey
+}
+
+// Assertion signs a client assertion for tokenEndpoint: EdDSA with the kid;
+// iss and sub the client; a fresh jti; exp two minutes after now.
+func (s *Signer) Assertion(tokenEndpoint string, now time.Time) (string, error) {
+	return jose.SignEdDSA(s.Key, s.KID, cauthykey.Claims{Iss: s.ClientID, Sub: s.ClientID, Aud: tokenEndpoint, Jti: uuid4(),
+		Iat: now.Unix(), Exp: now.Unix() + 120})
+}
+
+// String names the key, never showing it.
+func (s Signer) String() string {
+	return "system.Signer{ClientID: " + s.ClientID + ", KID: " + s.KID + "}"
+}
+
+// GoString is String.
+func (s Signer) GoString() string { return s.String() }
+
 // Options configure the system client.
 type Options struct {
 	Issuer       string
 	ClientID     string
 	ClientSecret string
-	Key          *Key
+	// Signer is the key derived from CAUTHY_KEY. It takes the place of Key,
+	// Keys and ClientSecret.
+	Signer *Signer
+	Key    *Key
 	// Keys are the application's own keys (contract mode); KeysClientID is
 	// the client they prove: pact.<link>.service. They take the place of Key.
 	Keys         *keys.Keys
 	KeysClientID string
 	// System is the application's system, which Check asks about.
 	System string
+	// SystemOf, when set, names the system instead of System: an application
+	// on CAUTHY_KEY learns it from Cauthy after it starts.
+	SystemOf func() string
 	// AcceptInviteURL is the application's own page for accepting an
 	// invitation, absolute; the invitations AddMember and Invite send open it.
 	AcceptInviteURL string
@@ -153,6 +187,9 @@ func (c *Client) configured() error {
 	if !strings.HasPrefix(c.issuer, "https://") && !strings.HasPrefix(c.issuer, "http://") {
 		return cfgerr.New("issuer (CAUTHY_ISSUER) must be Cauthy's address")
 	}
+	if c.o.Signer != nil {
+		return nil
+	}
 	if c.o.ClientID == "" && c.o.Keys == nil {
 		return cfgerr.New("clientId (CAUTHY_CLIENT_ID) is required")
 	}
@@ -198,6 +235,8 @@ func parseKey(s string) (*rsa.PrivateKey, error) {
 // with (nil with a secret).
 func (c *Client) self(ctx context.Context) (string, string, *rsa.PrivateKey, error) {
 	switch {
+	case c.o.Signer != nil:
+		return c.o.Signer.ClientID, c.o.Signer.KID, nil, nil
 	case c.o.Keys != nil:
 		kid, key, err := c.o.Keys.Current(ctx)
 		return c.o.KeysClientID, kid, key, err
@@ -291,7 +330,15 @@ func (c *Client) Token(ctx context.Context) (string, error) {
 		return "", err
 	}
 	form := url.Values{"grant_type": {"client_credentials"}, "client_id": {id}}
-	if key != nil {
+	if s := c.o.Signer; s != nil {
+		a, err := s.Assertion(c.endpoint, c.now())
+		if err != nil {
+			return "", err
+		}
+		form.Set("client_id", s.ClientID)
+		form.Set("client_assertion_type", assertionType)
+		form.Set("client_assertion", a)
+	} else if key != nil {
 		a, err := Assertion(key, kid, id, c.endpoint, c.now())
 		if err != nil {
 			return "", err

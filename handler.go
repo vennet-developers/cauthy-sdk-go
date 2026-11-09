@@ -15,11 +15,17 @@ import (
 // ServeHTTP serves the auth-bff routes under the base path and the published
 // keys at the JWKS path. Every answer goes out as protocol version 1 sends it.
 func (a *Auth) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	route, _ := a.routeOf(r)
+	route, inside := a.routeOf(r)
 	get := r.Method == http.MethodGet || r.Method == http.MethodHead
 	if a.pact != nil && r.URL.Path == a.contract.JWKSPath && get {
 		send(w, "", a.jwksReply(r), true)
 		return
+	}
+	if inside && a.identity != nil {
+		if rep := a.identified(r); rep != nil {
+			send(w, route, rep, false)
+			return
+		}
 	}
 	send(w, route, a.serve(r, route), false)
 }

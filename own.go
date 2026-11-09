@@ -175,7 +175,7 @@ func (a *Auth) ownRoute(r *http.Request, route string) *reply {
 	if strings.HasPrefix(route, "/me/upgrade/social/") {
 		a.warnOnce("deprecated upgrade social", "cauthy: GET /me/upgrade/social/{provider} is deprecated and leaves in 2.0. Guest sessions leave the auth-bff protocol in version 2.")
 	}
-	if a.tenant == "" {
+	if a.tenantSlug() == "" {
 		return problem(http.StatusInternalServerError, "not_configured", "cauthy: tenant (CAUTHY_TENANT) is required for the application's own sign-in screens", "", nil, nil)
 	}
 	if !post {

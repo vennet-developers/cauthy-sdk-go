@@ -226,6 +226,9 @@ func (c *Client) Check(ctx context.Context, q CheckQuestion) (CheckResult, error
 	if system == "" {
 		system = c.o.System
 	}
+	if system == "" && c.o.SystemOf != nil {
+		system = c.o.SystemOf()
+	}
 	if system == "" {
 		return CheckResult{}, cfgerr.New("name the system to check in (CheckQuestion.System, or CAUTHY_SYSTEM)")
 	}

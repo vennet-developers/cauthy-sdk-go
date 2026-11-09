@@ -197,7 +197,7 @@ func (a *Auth) pushEvents(r *http.Request, _ string) *reply {
 	}
 	ctx, cancel := context.WithCancel(r.Context())
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, a.issuer+"/v1/auth/mfa/push/events", nil)
-	req.Header = http.Header{"X-Tenant-Key": {a.tenant}, "X-Mfa-Token": {s.Token}, "Accept": {"text/event-stream"}}
+	req.Header = http.Header{"X-Tenant-Key": {a.tenantSlug()}, "X-Mfa-Token": {s.Token}, "Accept": {"text/event-stream"}}
 	type result struct {
 		res *http.Response
 		err error
