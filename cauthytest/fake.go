@@ -79,8 +79,14 @@ type Fake struct {
 	// application's client, accounts); "" refuses every admin call.
 	AdminToken string
 	// ClientID is the application's client, as the admin API lists it; its
-	// allow_persistent_sessions is Settings["persistent_sessions"].
+	// allow_persistent_sessions is Settings["persistent_sessions"]. A key
+	// IssueKey makes is for this client.
 	ClientID string
+	// System is what GET /v1/connect/self says the application is: "acme-crm".
+	System string
+	// AppURLs are the application's addresses GET /v1/connect/self answers.
+	// Default http://localhost:3000.
+	AppURLs []string
 
 	mu        sync.Mutex
 	users     map[string]*User
@@ -93,6 +99,13 @@ type Fake struct {
 	calls     []Call
 	scripted  map[string]func(Call) Reply
 	n         int
+
+	// CAUTHY_KEY (keys.go)
+	keyring      map[string]*fakeKey
+	kids         []string
+	keyClients   map[string]bool
+	jtis         map[string]bool
+	systemTokens map[string]string
 }
 
 type code struct{ sub, challenge, redirectURI string }
@@ -100,10 +113,11 @@ type code struct{ sub, challenge, redirectURI string }
 // New is a fake Cauthy with one account, ana@example.com (u1), and no password.
 func New() *Fake {
 	f := &Fake{
-		Issuer: "https://id.test", Tenant: "acme", ExpiresIn: 600, ClientID: "acme-crm",
+		Issuer: "https://id.test", Tenant: "acme", ExpiresIn: 600, ClientID: "acme-crm", System: "acme-crm", AppURLs: []string{"http://localhost:3000"},
 		Settings: map[string]any{"allow_password": true, "allow_signup": false, "allow_passkeys": false, "persistent_sessions": false},
 		users:    map[string]*User{}, passwords: map[string]string{}, orgs: map[string][]map[string]any{},
 		codes: map[string]code{}, refresh: map[string]string{}, access: map[string]string{}, scripted: map[string]func(Call) Reply{},
+		keyring: map[string]*fakeKey{}, keyClients: map[string]bool{}, jtis: map[string]bool{}, systemTokens: map[string]string{},
 	}
 	f.AddUser(User{Sub: "u1", Email: "ana@example.com", Name: "Ana", Active: true}, "")
 	return f
@@ -312,9 +326,23 @@ func (f *Fake) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	switch r.URL.Path {
 	case "/v1/oauth/token":
+		kid, ok := f.clientAuth(w, c)
+		if !ok {
+			return
+		}
+		if kid != "" && c.Form.Get("grant_type") == "client_credentials" {
+			f.systemToken(w, kid)
+			return
+		}
 		f.tokenEndpoint(w, c)
 		return
+	case "/v1/connect/self":
+		f.self(w, r)
+		return
 	case "/v1/oauth/revoke":
+		if _, ok := f.clientAuth(w, c); !ok {
+			return
+		}
 		f.revoked = append(f.revoked, c.Form.Get("token"))
 		delete(f.refresh, c.Form.Get("token"))
 		reply(w, 200, map[string]any{})
