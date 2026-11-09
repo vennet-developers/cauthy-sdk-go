@@ -1,6 +1,7 @@
 package cauthykey_test
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -8,8 +9,10 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/vennet-developers/cauthy-sdk-go/cauthykey"
+	"github.com/vennet-developers/cauthy-sdk-go/keys"
 )
 
 // pinned is the sha256 of the vendored vectors (scripts/sync-spec.sh copies
@@ -87,6 +90,38 @@ func TestParseAndComposeVectors(t *testing.T) {
 			}
 			if strings.Contains(err.Error(), testSecret) {
 				t.Fatal("the refusal holds the secret")
+			}
+		})
+	}
+}
+
+func TestDeriveAndAssertionVectors(t *testing.T) {
+	for _, c := range load(t).Valid {
+		t.Run(c.Name, func(t *testing.T) {
+			k, err := cauthykey.Parse(c.Key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			d := k.Derive()
+			for label, want := range c.Derived {
+				if hex.EncodeToString(d.Labels[label]) != want {
+					t.Fatalf("%s differs", label)
+				}
+			}
+			if d.X != c.PublicJWK["x"] || d.KID != c.KID {
+				t.Fatalf("x %s kid %s", d.X, d.KID)
+			}
+			if got := d.Assertion(c.ClientID, c.Assertion.TokenEndpoint, c.Assertion.Jti, time.Unix(c.Assertion.Iat, 0)); got != c.Assertion.JWS {
+				t.Fatalf("assertion differs:\n%s\n%s", got, c.Assertion.JWS)
+			}
+			// The rings are the root-key derivation with the secret segment as the root.
+			rings, err := keys.Derive(k.Secret, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(rings.Cookie[0], d.Labels[cauthykey.LabelCookie]) || !bytes.Equal(rings.Flow[0], d.Labels[cauthykey.LabelFlow]) ||
+				!bytes.Equal(rings.Seal[0], d.Labels[cauthykey.LabelSeal]) {
+				t.Fatal("keys.Derive and the key's derivation disagree")
 			}
 		})
 	}
