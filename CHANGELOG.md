@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.2.1 — sessions kept when moving to CAUTHY_KEY
 
 ### Fixed
 
