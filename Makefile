@@ -1,13 +1,14 @@
 # Every check CI runs, runnable on a laptop. SPEC_DIR is a cauthy-sdk-spec
-# checkout (default ../cauthy-sdk-spec) at the pinned commit (a9e45d986efc006b522d3f1aa8ca0f5e644b7964, conformance/v0.4.0).
+# checkout (default ../cauthy-sdk-spec) at the commit in internal/spec/testdata/SPEC_COMMIT
+# (CAUTHY_KEY, ahead of a tag; CI's pin moves to the next conformance tag).
 SPEC_DIR ?= ../cauthy-sdk-spec
 MODULES := . ./examples/acme-crm ./gin ./echo ./fiber ./internal/pgtest
 STATICCHECK := honnef.co/go/tools/cmd/staticcheck@v0.8.2
 GOVULNCHECK := golang.org/x/vuln/cmd/govulncheck@v1.9.0
 
-.PHONY: all fmt vet lint vulncheck test vectors spec conformance tidy pgtest
+.PHONY: all fmt vet lint vulncheck test vectors spec key-reference conformance tidy pgtest
 
-all: fmt vet lint vulncheck test vectors conformance
+all: fmt vet lint vulncheck test vectors key-reference conformance
 
 fmt:
 	@test -z "$$(gofmt -l .)" || { gofmt -l .; echo "run gofmt -w ."; exit 1; }
@@ -33,6 +34,11 @@ vectors:
 
 spec:
 	SPEC_DIR=$(SPEC_DIR) sh scripts/check-spec.sh
+
+# The CAUTHY_KEY reference is the spec's file, byte for byte.
+key-reference: ## copy the spec's CAUTHY_KEY reference again and fail if it changed
+	{ echo "// Copied from cauthy-sdk-spec conformance/cauthykey/key.go; do not edit here (make key-reference)."; cat $(SPEC_DIR)/conformance/cauthykey/key.go; } > cauthykey/key.go
+	git diff --exit-code cauthykey/key.go
 
 conformance:
 	SPEC_DIR=$(SPEC_DIR) LEVEL=switches sh scripts/conformance.sh

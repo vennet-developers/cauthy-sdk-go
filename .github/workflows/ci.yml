@@ -52,6 +52,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      # TODO(CAUTHY_KEY): testdata is synced from the spec's CAUTHY_KEY commit
+      # (internal/spec/testdata/SPEC_COMMIT); this pin moves to the
+      # conformance tag that releases it before this branch merges.
       - name: cauthy-sdk-spec at conformance/v0.4.0, pinned by commit
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -64,6 +67,8 @@ jobs:
           cache: false
       - name: the vendored vectors and route table are the pinned spec's
         run: SPEC_DIR=spec sh scripts/check-spec.sh
+      - name: the CAUTHY_KEY reference is the pinned spec's, byte for byte
+        run: make key-reference SPEC_DIR=spec
       - name: token vectors and the route table, every one must agree
         run: go test -count=1 -run 'TestVectors|TestEveryRouteOfTheTableIsServed' -v .
       - name: auth-bff conformance, level switches

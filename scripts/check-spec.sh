@@ -11,5 +11,6 @@ got=$(git -C "$spec" rev-parse HEAD)
 test "$want" = "$got" || { echo "testdata is from $want, the spec checkout is $got" >&2; exit 1; }
 diff -u "$spec/vectors/tokens.json" "$out/tokens.json"
 diff -u "$spec/vectors/jwks.json" "$out/jwks.json"
+diff -u "$spec/vectors/cauthy-key.json" "$out/cauthy-key.json"
 diff -u "$spec/protocol/routes.yaml" "$out/routes.yaml"
 echo "testdata matches cauthy-sdk-spec $want"
