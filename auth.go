@@ -221,6 +221,7 @@ func New(o Options) (*Auth, error) {
 				return nil, &cauthykey.Error{Reason: "key_contract_issuer", Msg: "CAUTHY_KEY: the key names " + a.keyed.key.Issuer + ", the contract's Cauthy is " + c.Issuer}
 			}
 		} else {
+			deprecated(a.log, "PACT_ROOT_KEY", "Generate CAUTHY_KEY on the application's card in Cauthy's dashboard, and remove PACT_ROOT_KEY and the key store.")
 			root, previous = or(o.RootKey, "PACT_ROOT_KEY"), or(o.RootKeyPrevious, "PACT_ROOT_KEY_PREVIOUS")
 			if root == "" {
 				return nil, cfgerr.New("CAUTHY_KEY is required with a contract: make it on the application's card in Cauthy's dashboard (or, until 2.0, RootKey: PACT_ROOT_KEY)")
@@ -234,6 +235,7 @@ func New(o Options) (*Auth, error) {
 			a.issuer = c.Issuer
 		}
 	} else if a.keyed == nil {
+		deprecated(a.log, "The CAUTHY_* variables", "Connect the application in Cauthy's dashboard and use the one variable CAUTHY_KEY.")
 		a.issuer = withoutTrailingSlashes(or(o.Issuer, "CAUTHY_ISSUER"))
 		a.clientID = or(o.ClientID, "CAUTHY_CLIENT_ID")
 		a.clientSecret = or(o.ClientSecret, "CAUTHY_CLIENT_SECRET")
@@ -267,6 +269,27 @@ func New(o Options) (*Auth, error) {
 			return nil, err
 		}
 		a.cookieRing, a.flowRing = rings.Cookie, rings.Flow
+		// While moving to CAUTHY_KEY, the sessions of the secret it replaces
+		// are read (never written: the first key of a ring writes).
+		if secret := getenv("CAUTHY_SECRET"); secret != "" {
+			sum := sha256.Sum256([]byte(secret))
+			a.cookieRing, a.flowRing = append(a.cookieRing, sum[:]), append(a.flowRing, sum[:])
+			deprecated(a.log, "CAUTHY_SECRET beside CAUTHY_KEY", "It is read only for sessions made before the move: remove it after the rotation window.")
+		}
+		if root := getenv("PACT_ROOT_KEY"); root != "" {
+			old, err := keys.Derive(root, "")
+			if err != nil {
+				return nil, err
+			}
+			a.cookieRing, a.flowRing = append(a.cookieRing, old.Cookie[0]), append(a.flowRing, old.Flow[0])
+			if o.Keys != nil {
+				// Its stored keys stay published beside the key's until removed.
+				a.ownKeys = keys.New(o.Keys, old.Seal, a.now)
+			}
+			deprecated(a.log, "PACT_ROOT_KEY beside CAUTHY_KEY", "It is read only for sessions made before the move: remove it, the key store and its table after the rotation window.")
+		} else if o.Keys != nil {
+			return nil, cfgerr.New("Keys is the key store of PACT_ROOT_KEY, which opens it: on CAUTHY_KEY remove Keys (no key store is needed), or keep PACT_ROOT_KEY beside the key while moving")
+		}
 		// The key proves the key's client; by contract, the link's service
 		// client (none without a service block).
 		proves := a.clientID
@@ -367,7 +390,7 @@ func New(o Options) (*Auth, error) {
 	if a.baseURL != "" && a.pages.AcceptInvite != "" {
 		so.AcceptInviteURL = a.baseURL + a.pages.AcceptInvite
 	}
-	if a.ownKeys != nil {
+	if a.ownKeys != nil && a.keyed == nil {
 		so.Keys, so.KeysClientID = a.ownKeys, a.contract.ServiceClientID
 	}
 	sys, err := system.New(so)
@@ -376,7 +399,7 @@ func New(o Options) (*Auth, error) {
 	}
 	a.sys = sys
 
-	if a.ownKeys != nil {
+	if a.ownKeys != nil && a.keyed == nil {
 		// contract/pact.md, rule 10: a store that keeps no key, or a key the
 		// root cannot open, stops the start.
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
