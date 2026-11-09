@@ -65,6 +65,13 @@ func (f *Fake) RegisterKey(key string) error {
 	return nil
 }
 
+// SetAppURLs sets AppURLs, safely while the fake serves.
+func (f *Fake) SetAppURLs(urls ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.AppURLs = urls
+}
+
 // RevokeKey revokes a key by its kid: its assertions are refused with 401
 // invalid_client, and the system tokens it bought no longer answer.
 func (f *Fake) RevokeKey(kid string) {

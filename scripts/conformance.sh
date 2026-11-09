@@ -8,9 +8,11 @@
 #   SPEC_DIR=../cauthy-sdk-spec LEVEL=strict sh scripts/conformance.sh
 #   SPEC_DIR=../cauthy-sdk-spec LEVEL=switches sh scripts/conformance.sh
 #
-# At LEVEL=switches the in-memory Cauthy also serves its admin API (on
-# CONFORMANCE_CAUTHY_PORT, default the target's port + 1) and the runner
-# flips the tenant's dashboard switches through it.
+# The target runs on CAUTHY_KEY alone, issued by its in-memory Cauthy (served
+# on CONFORMANCE_CAUTHY_PORT, default the target's port + 1); the runner reads
+# the key from CONFORMANCE_KEY (--key-env) and adds the key.* checks. At
+# LEVEL=switches the in-memory Cauthy also serves its admin API there and the
+# runner flips the tenant's dashboard switches through it.
 set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 spec=${SPEC_DIR:-$root/../cauthy-sdk-spec}
@@ -47,9 +49,14 @@ if [ "$level" = switches ]; then
   switches="--cauthy http://127.0.0.1:$cauthy_port --admin-token-env CONFORMANCE_ADMIN_TOKEN --tenant acme --client-id acme-crm"
 fi
 
+# The key the target runs on, written by it (0600) and never printed.
+CONFORMANCE_KEY_FILE=$root/.conformance/key
+rm -f "$CONFORMANCE_KEY_FILE"
+export CONFORMANCE_KEY_FILE
+
 "$target" &
 pid=$!
-trap 'kill $pid 2>/dev/null || true' EXIT INT TERM
+trap 'kill $pid 2>/dev/null || true; rm -f "$CONFORMANCE_KEY_FILE"' EXIT INT TERM
 
 i=0
 until curl -s -m 1 -o /dev/null "http://localhost:$port/api/auth/session"; do
@@ -61,11 +68,16 @@ until curl -s -m 1 -o /dev/null "http://localhost:$port/api/auth/session"; do
   sleep 0.2
 done
 
+test -s "$CONFORMANCE_KEY_FILE" || { echo "the target wrote no key" >&2; exit 2; }
+CONFORMANCE_KEY=$(cat "$CONFORMANCE_KEY_FILE")
+export CONFORMANCE_KEY
+
 set +e
 # $switches is split into its flags on purpose.
 # shellcheck disable=SC2086
 "$runner" --target "http://localhost:$port/api/auth" --origin "http://localhost:$port" \
-  --email member@example.com --level "$level" --table "$spec/protocol/routes.yaml" --json "$report" $switches
+  --email member@example.com --level "$level" --table "$spec/protocol/routes.yaml" --json "$report" \
+  --key-env CONFORMANCE_KEY $switches
 code=$?
 set -e
 exit $code

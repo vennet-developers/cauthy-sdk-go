@@ -10,7 +10,8 @@
 //   - A Go application that is its own backend for the browser serves the
 //     auth-bff protocol with Auth (cauthy.New): cookie sessions, every
 //     sign-in method, the account, organizations, the system client and
-//     webhooks, at protocol level strict.
+//     webhooks, at protocol level strict. It needs one variable, CAUTHY_KEY,
+//     made in Cauthy's dashboard (key/cauthy-key.md; package cauthykey).
 //
 // The rules a token is checked by are cauthy-sdk-spec's
 // verification/rules.md; the routes Auth serves are its protocol/routes.yaml.
