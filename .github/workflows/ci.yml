@@ -52,14 +52,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      # TODO(CAUTHY_KEY): testdata is synced from the spec's CAUTHY_KEY commit
-      # (internal/spec/testdata/SPEC_COMMIT); this pin moves to the
-      # conformance tag that releases it before this branch merges.
-      - name: cauthy-sdk-spec at conformance/v0.4.0, pinned by commit
+      - name: cauthy-sdk-spec at conformance/v0.5.0, pinned by commit
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: vennet-developers/cauthy-sdk-spec
-          ref: a9e45d986efc006b522d3f1aa8ca0f5e644b7964 # conformance/v0.4.0
+          ref: bbfe1d0f77fa70b78ca3dc57260fe333ecf773af # conformance/v0.5.0
           path: spec
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
