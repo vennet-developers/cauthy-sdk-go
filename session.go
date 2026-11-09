@@ -364,6 +364,20 @@ func (a *Auth) read(r *http.Request) (map[string]string, *stored, bool) {
 	return had, &s, true
 }
 
+// stale reports whether the session cookie was sealed with a key of the ring
+// other than the first, the one that writes.
+func (a *Auth) stale(had map[string]string) bool {
+	if len(a.cookieRing) < 2 {
+		return false
+	}
+	raw, present := readParts(had, a.cookieName)
+	if !present {
+		return false
+	}
+	_, err := jose.Open(raw, a.cookieRing[0])
+	return err != nil
+}
+
 // write is the Set-Cookie values that store s.
 func (a *Auth) write(r *http.Request, s *stored, had map[string]string) []string {
 	sealed, err := seal(s, a.cookieRing)
@@ -459,6 +473,9 @@ func (a *Auth) Resolve(r *http.Request) Resolved {
 		var cookies []string
 		if present {
 			cookies = a.clearSession(r, had) // a cookie this key did not make
+			warnOnce(a.log, "unopened session cookie", "cauthy: a session cookie arrived that no key of this application opens; it was cleared and the person is signed out. "+
+				"Moving to CAUTHY_KEY, keep the secret that sealed the old sessions (CAUTHY_SECRET, or PACT_ROOT_KEY and PACT_ROOT_KEY_PREVIOUS) beside it for the rotation window; "+
+				"rotating the key, set CAUTHY_KEY_PREVIOUS.")
 		}
 		return Resolved{Status: StatusUnauthenticated, Cookies: cookies}
 	}
@@ -466,7 +483,14 @@ func (a *Auth) Resolve(r *http.Request) Resolved {
 		return Resolved{Status: StatusUnauthenticated, Cookies: a.clearSession(r, had)}
 	}
 	if a.fresh(value) {
-		return Resolved{Session: value.session(), Status: StatusAuthenticated}
+		// Sealed with a key that only reads (CAUTHY_KEY_PREVIOUS, or the
+		// CAUTHY_SECRET / PACT_ROOT_KEY of before the move): sealed again now
+		// with the current one, so the session outlives the old secret.
+		var cookies []string
+		if a.stale(had) {
+			cookies = a.write(r, value, had)
+		}
+		return Resolved{Session: value.session(), Status: StatusAuthenticated, Cookies: cookies}
 	}
 	next, outcome := a.renew(r.Context(), value)
 	switch outcome {

@@ -57,8 +57,11 @@ addresses, revalidated every five minutes. Cauthy keeps only the public half.
   old one. Rotating: move the current value to `CAUTHY_KEY_PREVIOUS`, put the
   new one in `CAUTHY_KEY`, deploy, remove `CAUTHY_KEY_PREVIOUS` after the
   window. Sessions of the previous key are read, never written.
-- Moving from 1.1: keep `CAUTHY_SECRET` or `PACT_ROOT_KEY` beside the key for
-  the window; their sessions are read (one deprecation warning each).
+- Moving from 1.1: keep `CAUTHY_SECRET` or `PACT_ROOT_KEY` (and
+  `PACT_ROOT_KEY_PREVIOUS`, if a root rotation is open) beside the key for the
+  window; their sessions are read and sealed again with the key the first time
+  they are read (one deprecation warning each). A session nobody used during
+  the window is lost with the old secret.
 
 The variables of 1.1 (`CAUTHY_ISSUER`, `CAUTHY_CLIENT_ID`, …) and
 `PACT_ROOT_KEY` still work in 1.x with a deprecation warning (`slog`, `Warn`,

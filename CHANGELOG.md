@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Moving to `CAUTHY_KEY`**: a session sealed with `CAUTHY_SECRET`, `PACT_ROOT_KEY` or `CAUTHY_KEY_PREVIOUS` is sealed again with the key on the first request that resolves it (`GET <basePath>/session`, the middleware, `Session(w, r)`), not only when its access token is renewed, so it outlives the old secret's removal.
+- `PACT_ROOT_KEY_PREVIOUS` beside `CAUTHY_KEY` and `PACT_ROOT_KEY` is read too: sessions sealed before a root rotation that was still open at the move stay readable. v1.2.0 read the current root only.
+- A session cookie that no configured key opens is still cleared, and is now logged once per process (`slog`, `Warn`), naming the secret to keep beside `CAUTHY_KEY` for the window.
+
 ## v1.2.0 — CAUTHY_KEY
 
 One variable for every application: `CAUTHY_KEY`, made in Cauthy's dashboard (`key/cauthy-key.md` in cauthy-sdk-spec).

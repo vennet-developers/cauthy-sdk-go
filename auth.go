@@ -277,11 +277,13 @@ func New(o Options) (*Auth, error) {
 			deprecated(a.log, "CAUTHY_SECRET beside CAUTHY_KEY", "It is read only for sessions made before the move: remove it after the rotation window.")
 		}
 		if root := getenv("PACT_ROOT_KEY"); root != "" {
-			old, err := keys.Derive(root, "")
+			// With PACT_ROOT_KEY_PREVIOUS when a root rotation was still open:
+			// the sessions of both roots are read.
+			old, err := keys.Derive(root, getenv("PACT_ROOT_KEY_PREVIOUS"))
 			if err != nil {
 				return nil, err
 			}
-			a.cookieRing, a.flowRing = append(a.cookieRing, old.Cookie[0]), append(a.flowRing, old.Flow[0])
+			a.cookieRing, a.flowRing = append(a.cookieRing, old.Cookie...), append(a.flowRing, old.Flow...)
 			if o.Keys != nil {
 				// Its stored keys stay published beside the key's until removed.
 				a.ownKeys = keys.New(o.Keys, old.Seal, a.now)

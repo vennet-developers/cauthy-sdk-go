@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"strings"
 	"sync"
@@ -181,5 +182,122 @@ func TestTheLegacyContractWarnsOnce(t *testing.T) {
 	}
 	if d := c.deprecations(); len(d) != 1 || !strings.Contains(d[0], "PACT_ROOT_KEY") || !strings.Contains(d[0], "CAUTHY_KEY") {
 		t.Fatalf("%v", d)
+	}
+}
+
+// moved is the Auth on CAUTHY_KEY with what env adds beside it, by contract
+// when store is not nil (the link's service client holds the key).
+func moved(t *testing.T, f *cauthytest.Fake, key string, store keys.Store, env map[string]string, log *slog.Logger) *Auth {
+	t.Helper()
+	if log == nil {
+		log = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+	all := map[string]string{"CAUTHY_KEY": key}
+	for k, v := range env {
+		all[k] = v
+	}
+	o := Options{Getenv: envOf(all), HTTPClient: f.Client(), Logger: log}
+	if store != nil {
+		o.Contract, o.Keys = &Contract{Graph: acmeGraph(f, false), System: "acme-crm"}, store
+	}
+	a, err := New(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a
+}
+
+// sessionCookieSet reports whether the answer to GET /api/auth/session set the session cookie.
+func sessionCookieSet(a *Auth, b *cauthytest.Browser) bool {
+	res := b.Send(a, "GET", "/api/auth/session", nil)
+	for _, c := range res.Header.Values("Set-Cookie") {
+		if strings.HasPrefix(c, "cauthy_session.0=") && !strings.HasPrefix(c, "cauthy_session.0=;") {
+			return true
+		}
+	}
+	return false
+}
+
+func TestKeySealsAgainASessionOfPactRootKeyAndItOutlivesTheRootKey(t *testing.T) {
+	f := cauthytest.New()
+	store := keys.Memory()
+	before, err := contractAuth(t, f, store, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := cauthytest.NewBrowser("")
+	signIn(t, before, f, b, "u1")
+
+	f.ClientID = "pact." + acmeLink + ".service"
+	key := f.IssueKey()
+	after := moved(t, f, key, store, map[string]string{"PACT_ROOT_KEY": testRootKey}, nil)
+	if !sessionCookieSet(after, b) {
+		t.Fatal("a session of PACT_ROOT_KEY is not sealed again with the key when read")
+	}
+	if sessionCookieSet(after, b) {
+		t.Fatal("a session of the key is sealed again")
+	}
+	// The window ends: PACT_ROOT_KEY and the key store go, the session stays.
+	if sessionUser(moved(t, f, key, nil, nil, nil), b) != "u1" {
+		t.Fatal("the session is lost with PACT_ROOT_KEY")
+	}
+	if sessionUser(before, b) != "" {
+		t.Fatal("the session is still sealed with the root key")
+	}
+}
+
+func TestKeyReadsTheSessionsOfPactRootKeyPreviousWhileMoving(t *testing.T) {
+	const older = "acme-older-root-key-for-tests-only-0123"
+	f := cauthytest.New()
+	store := keys.Memory()
+	before, err := New(Options{Contract: &Contract{Graph: acmeGraph(f, false), System: "acme-crm"}, Keys: store, RootKey: older,
+		HTTPClient: f.Client(), Getenv: noEnv, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := cauthytest.NewBrowser("")
+	signIn(t, before, f, b, "u1")
+
+	// The root had been rotated (testRootKey, previous older) when the application moved.
+	f.ClientID = "pact." + acmeLink + ".service"
+	after := moved(t, f, f.IssueKey(), store, map[string]string{"PACT_ROOT_KEY": testRootKey, "PACT_ROOT_KEY_PREVIOUS": older}, nil)
+	if sessionUser(after, b) != "u1" {
+		t.Fatal("a session of PACT_ROOT_KEY_PREVIOUS is not read")
+	}
+}
+
+func TestKeySealsAgainASessionOfCauthySecret(t *testing.T) {
+	f := cauthytest.New()
+	f.AppURLs = []string{"https://app.test"}
+	before := newAuth(t, f, nil)
+	b := cauthytest.NewBrowser("")
+	signIn(t, before, f, b, "u1")
+
+	key := f.IssueKey()
+	if !sessionCookieSet(moved(t, f, key, nil, map[string]string{"CAUTHY_SECRET": testSecret}, nil), b) {
+		t.Fatal("a session of CAUTHY_SECRET is not sealed again with the key when read")
+	}
+	if sessionUser(moved(t, f, key, nil, nil, nil), b) != "u1" {
+		t.Fatal("the session is lost with CAUTHY_SECRET")
+	}
+}
+
+func TestASessionCookieNoKeyOpensIsSaidOnce(t *testing.T) {
+	f := cauthytest.New()
+	f.AppURLs = []string{"https://app.test"}
+	var c counted
+	a := moved(t, f, f.IssueKey(), nil, nil, c.logger(t))
+	b := cauthytest.NewBrowser("")
+	for range 2 {
+		b.Jar["cauthy_session.0"] = "eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0..AAAA.BBBB.CCCC"
+		if sessionUser(a, b) != "" || len(b.Jar) != 0 {
+			t.Fatalf("%v", b.Jar)
+		}
+	}
+	if n := strings.Count(c.buf.String(), "no key of this application opens"); n != 1 {
+		t.Fatalf("said %d times: %s", n, c.buf.String())
+	}
+	if !strings.Contains(c.buf.String(), "PACT_ROOT_KEY_PREVIOUS") {
+		t.Fatal(c.buf.String())
 	}
 }

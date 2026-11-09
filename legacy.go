@@ -16,5 +16,12 @@ func deprecated(log *slog.Logger, what, instead string) {
 	}
 }
 
+// warnOnce logs msg as a warning once per process.
+func warnOnce(log *slog.Logger, what, msg string) {
+	if _, said := told.LoadOrStore(what, true); !said {
+		log.Warn(msg)
+	}
+}
+
 // forgetDeprecations forgets what was said, for tests.
 func forgetDeprecations() { told.Clear() }
