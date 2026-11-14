@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: vennet-developers/cauthy-sdk-spec
-          ref: bbfe1d0f77fa70b78ca3dc57260fe333ecf773af # conformance/v0.5.0
+          ref: d501e344e8d4ad1840c601d092b83bdf3deedb1c # conformance/v0.6.0
           path: spec
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
