@@ -89,15 +89,23 @@ func TestPasswordsAndSignUpsFollowTheSettings(t *testing.T) {
 	}
 }
 
-func TestTheClientsLongSessions(t *testing.T) {
+// "Keep me signed in" is the workspace's setting: PUT /v1/settings/auth
+// turns it on, GET /v1/auth/settings says so, and a client update that still
+// sets allow_persistent_sessions is refused (400 persistent_sessions_moved).
+func TestTheWorkspacesLongSessions(t *testing.T) {
 	f := newAdminFake()
 	res, body := adminCall(t, f, "PATCH", "/v1/oauth/clients/acme-crm", `{"allow_persistent_sessions":true}`, "admin-token")
-	if res.StatusCode != 200 || body["data"].(map[string]any)["allow_persistent_sessions"] != true {
+	errs, _ := body["errors"].([]any)
+	if res.StatusCode != 400 || len(errs) == 0 || errs[0].(map[string]any)["code"] != "persistent_sessions_moved" || f.Settings["persistent_sessions"] == true {
 		t.Fatalf("%d %v", res.StatusCode, body)
 	}
 	_, list := adminCall(t, f, "GET", "/v1/oauth/clients", "", "admin-token")
-	if list["data"].([]any)[0].(map[string]any)["allow_persistent_sessions"] != true {
+	if _, has := list["data"].([]any)[0].(map[string]any)["allow_persistent_sessions"]; has {
 		t.Fatalf("%v", list)
+	}
+	res, body = adminCall(t, f, "PUT", "/v1/settings/auth", `{"persistent_sessions":true}`, "admin-token")
+	if res.StatusCode != 200 || body["data"].(map[string]any)["persistent_sessions"] != true {
+		t.Fatalf("%d %v", res.StatusCode, body)
 	}
 	_, login := ownCall(t, f, "/v1/auth/login", `{"email":"member@example.com","password":"correct horse battery"}`, map[string]string{"X-Cauthy-Remember": "1"})
 	if login["data"].(map[string]any)["persistent"] != true {

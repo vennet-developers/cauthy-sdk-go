@@ -9,7 +9,7 @@ Pact contracts are retired, and contract mode is gone from the SDK. An applicati
 - **Contract mode**: `Options.Contract` and the `Contract` type, the `contract` package (reading the contracts graph), `VerifierConfigFromContract`, `Auth.Pact()` and the `Pact` type (its `Contract`, `Keys`, `JWKS` and `Status`), and `system.Client.PactStatus` / `system.PactStatus`.
 - **The key store and `PACT_ROOT_KEY`**: `Options.Keys`, `Options.RootKey`, `Options.RootKeyPrevious`, and the `keys` package (`Store`, `Memory`, `File`, `Postgres`, `TableSQL`, `Keys`, `Derive`, `JWKS`). `system.Options.Keys` and `KeysClientID` go with it; `system.Client.PublicJWKS` now answers a `system.JWKS`.
 - **Publishing a JWKS**: `Auth` no longer serves keys, and `Mount`, `MountRouter` and the `gin`, `echo` and `fiber` adapters mount the base path only. `JWKSPath()` and `DefaultJWKSPath` stay, deprecated, so the adapters released before 1.3.0 still compile; `Auth` answers 404 there.
-- `AppIdentity.Contract`.
+- `AppIdentity.Contract`, and `cauthykey.LabelSeal` (the spec's key reference no longer derives a seal key).
 - The SDK's own check of a link's `require_verified_email`. Cauthy enforces it: its `email_not_confirmed` refusal at the token endpoint is still answered as before.
 
 ### Changed
@@ -20,6 +20,8 @@ Pact contracts are retired, and contract mode is gone from the SDK. An applicati
 - `VerifierConfigFromKey` names no client, so a person's token issued through the sign-in client is accepted when the key is another client's (now covered by a test).
 - `cauthytest`: `Fake.SignInClients` (the key's client → the sign-in client `/v1/connect/self` names). The fake now binds a code to the client that asked for it and a refresh token to the client it was issued to, as Cauthy does.
 - The `acme-api` example verifies with `VerifierConfigFromKey`; the `acme-crm` example runs on `CAUTHY_KEY` only.
+- **"Keep me signed in" is the workspace's setting**, as in Cauthy: `/methods.persistentSessions` follows `persistent_sessions` of `GET /v1/auth/settings`. `cauthytest`: `PUT /v1/settings/auth` sets `persistent_sessions`; a client update with `allow_persistent_sessions` answers `400 persistent_sessions_moved`, and clients no longer list it.
+- Tested against cauthy-sdk-spec `d501e34` (contract removal and the workspace persistent-sessions check).
 
 ## v1.2.1 — sessions kept when moving to CAUTHY_KEY
 

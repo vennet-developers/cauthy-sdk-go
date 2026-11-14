@@ -78,9 +78,9 @@ type Fake struct {
 	// AdminToken is the bearer the admin API takes (settings, the
 	// application's client, accounts); "" refuses every admin call.
 	AdminToken string
-	// ClientID is the application's client, as the admin API lists it; its
-	// allow_persistent_sessions is Settings["persistent_sessions"]. A key
-	// IssueKey makes is for this client.
+	// ClientID is the application's client, as the admin API lists it. A key
+	// IssueKey makes is for this client. "Keep me signed in" is the
+	// workspace's: Settings["persistent_sessions"], never the client's.
 	ClientID string
 	// System is what GET /v1/connect/self says the application is: "acme-crm".
 	System string
@@ -258,7 +258,7 @@ func (f *Fake) bound(out map[string]any, clientID string) map[string]any {
 }
 
 // issueKind is a token answer; kind is what a sign-in asked for (remember)
-// when the client allows long sessions. Persistent wins when set.
+// when the workspace allows long sessions. Persistent wins when set.
 func (f *Fake) issueKind(sub string, kind *bool) map[string]any {
 	f.n++
 	at := fmt.Sprintf("at-%d", f.n)
@@ -493,7 +493,7 @@ func (f *Fake) ownScreen(w http.ResponseWriter, c Call) {
 			refuse(401, "invalid_credentials", "invalid email or password")
 			return
 		}
-		// A long session only when the person asked and the client allows it.
+		// A long session only when the person asked and the workspace allows it.
 		var kind *bool
 		if f.Settings["persistent_sessions"] == true {
 			remember := c.Header.Get("X-Cauthy-Remember") == "1"
@@ -545,7 +545,7 @@ func (f *Fake) ownScreen(w http.ResponseWriter, c Call) {
 }
 
 // adminSettings are the settings the admin API changes, as the dashboard's switches do.
-var adminSettings = []string{"allow_signup", "allow_password", "allow_magic_link", "allow_passkeys", "confirm_email", "verify_grace_days"}
+var adminSettings = []string{"allow_signup", "allow_password", "allow_magic_link", "allow_passkeys", "confirm_email", "verify_grace_days", "persistent_sessions"}
 
 var (
 	clientPath = regexp.MustCompile(`^/v1/oauth/clients/([^/]+)$`)
@@ -579,7 +579,6 @@ func (f *Fake) admin(w http.ResponseWriter, c Call) bool {
 		refuse(404, "tenant_not_found", "no such workspace")
 		return true
 	}
-	persistent := func() bool { return f.Settings["persistent_sessions"] == true }
 	switch {
 	case route == "GET /v1/settings/auth":
 		reply(w, 200, map[string]any{"data": f.Settings})
@@ -597,18 +596,18 @@ func (f *Fake) admin(w http.ResponseWriter, c Call) bool {
 		f.Settings = next
 		reply(w, 200, map[string]any{"data": f.Settings})
 	case route == "GET /v1/oauth/clients":
-		reply(w, 200, map[string]any{"data": []any{map[string]any{"client_id": f.ClientID, "allow_persistent_sessions": persistent()}}, "total_count": 1})
+		reply(w, 200, map[string]any{"data": []any{map[string]any{"client_id": f.ClientID}}, "total_count": 1})
 	case client != nil:
 		if client[1] != f.ClientID {
 			refuse(404, "client_not_found", "no such client")
 			return true
 		}
-		if on, ok := c.JSON["allow_persistent_sessions"].(bool); ok {
-			next := maps.Clone(f.Settings)
-			next["persistent_sessions"] = on
-			f.Settings = next
+		// "Keep me signed in" is no longer a client's, as Cauthy answers.
+		if _, set := c.JSON["allow_persistent_sessions"]; set {
+			refuse(400, "persistent_sessions_moved", "allow_persistent_sessions is no longer a client's: it is the workspace's persistent_sessions (PUT /v1/settings/auth)")
+			return true
 		}
-		reply(w, 200, map[string]any{"data": map[string]any{"client_id": f.ClientID, "allow_persistent_sessions": persistent()}})
+		reply(w, 200, map[string]any{"data": map[string]any{"client_id": f.ClientID}})
 	case route == "GET /v1/users":
 		q := strings.ToLower(c.Query.Get("q"))
 		data := []any{}

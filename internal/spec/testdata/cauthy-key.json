@@ -122,8 +122,7 @@
       "derived": {
         "cauthy/sign/v1": "184fe579a0174e164d119120c37b847966e0b246428b19d570a3e0775b864f4b",
         "pact/cookie/v1": "c93630824487cce95ed28ba33123de9fe468be3e4151ad257cc8c0dd1e1d90cf",
-        "pact/flow/v1": "e9efca8a01c0427c838670f1c6ccd940bc13e2bdb44f3c0b7d70820a00de180e",
-        "pact/seal/v1": "c8d78656bb2eddc6c8d32162425d2c3f0a1d8f2896118f3db9c11044d3faa28c"
+        "pact/flow/v1": "e9efca8a01c0427c838670f1c6ccd940bc13e2bdb44f3c0b7d70820a00de180e"
       },
       "public_jwk": {
         "crv": "Ed25519",
@@ -147,8 +146,7 @@
       "derived": {
         "cauthy/sign/v1": "184fe579a0174e164d119120c37b847966e0b246428b19d570a3e0775b864f4b",
         "pact/cookie/v1": "c93630824487cce95ed28ba33123de9fe468be3e4151ad257cc8c0dd1e1d90cf",
-        "pact/flow/v1": "e9efca8a01c0427c838670f1c6ccd940bc13e2bdb44f3c0b7d70820a00de180e",
-        "pact/seal/v1": "c8d78656bb2eddc6c8d32162425d2c3f0a1d8f2896118f3db9c11044d3faa28c"
+        "pact/flow/v1": "e9efca8a01c0427c838670f1c6ccd940bc13e2bdb44f3c0b7d70820a00de180e"
       },
       "public_jwk": {
         "crv": "Ed25519",
@@ -172,8 +170,7 @@
       "derived": {
         "cauthy/sign/v1": "184fe579a0174e164d119120c37b847966e0b246428b19d570a3e0775b864f4b",
         "pact/cookie/v1": "c93630824487cce95ed28ba33123de9fe468be3e4151ad257cc8c0dd1e1d90cf",
-        "pact/flow/v1": "e9efca8a01c0427c838670f1c6ccd940bc13e2bdb44f3c0b7d70820a00de180e",
-        "pact/seal/v1": "c8d78656bb2eddc6c8d32162425d2c3f0a1d8f2896118f3db9c11044d3faa28c"
+        "pact/flow/v1": "e9efca8a01c0427c838670f1c6ccd940bc13e2bdb44f3c0b7d70820a00de180e"
       },
       "public_jwk": {
         "crv": "Ed25519",
@@ -189,31 +186,6 @@
       }
     },
     {
-      "name": "valid/contract-service-client",
-      "key": "cauthy1.aHR0cHM6Ly9jYXV0aHkuYXBpLmV4YW1wbGUuY29t.cGFjdC5hY21lLWNybS1zaWducy1pbi13aXRoLWNhdXRoeS5zZXJ2aWNl.AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8.UNxyRkBl",
-      "issuer": "https://cauthy.api.example.com",
-      "client_id": "pact.acme-crm-signs-in-with-cauthy.service",
-      "secret": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
-      "derived": {
-        "cauthy/sign/v1": "184fe579a0174e164d119120c37b847966e0b246428b19d570a3e0775b864f4b",
-        "pact/cookie/v1": "c93630824487cce95ed28ba33123de9fe468be3e4151ad257cc8c0dd1e1d90cf",
-        "pact/flow/v1": "e9efca8a01c0427c838670f1c6ccd940bc13e2bdb44f3c0b7d70820a00de180e",
-        "pact/seal/v1": "c8d78656bb2eddc6c8d32162425d2c3f0a1d8f2896118f3db9c11044d3faa28c"
-      },
-      "public_jwk": {
-        "crv": "Ed25519",
-        "kty": "OKP",
-        "x": "B_V_bXnOTf8w7eW80j8xDs0QqCE37TnfDWYAOJAQoWY"
-      },
-      "kid": "dVpPrRtlQgOGn_9Q6DE2cgFRjUetrT2WPZCQyM48luc",
-      "assertion": {
-        "token_endpoint": "https://cauthy.api.example.com/v1/oauth/token",
-        "jti": "00000000-0000-4000-8000-000000000000",
-        "iat": 1793836800,
-        "jws": "eyJhbGciOiJFZERTQSIsImtpZCI6ImRWcFByUnRsUWdPR25fOVE2REUyY2dGUmpVZXRyVDJXUFpDUXlNNDhsdWMifQ.eyJpc3MiOiJwYWN0LmFjbWUtY3JtLXNpZ25zLWluLXdpdGgtY2F1dGh5LnNlcnZpY2UiLCJzdWIiOiJwYWN0LmFjbWUtY3JtLXNpZ25zLWluLXdpdGgtY2F1dGh5LnNlcnZpY2UiLCJhdWQiOiJodHRwczovL2NhdXRoeS5hcGkuZXhhbXBsZS5jb20vdjEvb2F1dGgvdG9rZW4iLCJqdGkiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDAiLCJpYXQiOjE3OTM4MzY4MDAsImV4cCI6MTc5MzgzNjkyMH0.ck9Qy6QZs4OcSVZExKbOlV7LjLtQFdIzY9TF1zMajFt734b1u0n1-4ACOjmpC1GAON1JzJ5FeRE4lCnl3J0KDg"
-      }
-    },
-    {
       "name": "valid/surrounding-whitespace",
       "key": " \tcauthy1.aHR0cHM6Ly9jYXV0aHkuYXBpLmV4YW1wbGUuY29t.Y2xpZW50XzAxMjM0NTY3ODlhYmNkZWYwMTIzNDU2Nzg5YWJjZGVm.AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8.AAvYhJZh\r\n",
       "issuer": "https://cauthy.api.example.com",
@@ -222,8 +194,7 @@
       "derived": {
         "cauthy/sign/v1": "184fe579a0174e164d119120c37b847966e0b246428b19d570a3e0775b864f4b",
         "pact/cookie/v1": "c93630824487cce95ed28ba33123de9fe468be3e4151ad257cc8c0dd1e1d90cf",
-        "pact/flow/v1": "e9efca8a01c0427c838670f1c6ccd940bc13e2bdb44f3c0b7d70820a00de180e",
-        "pact/seal/v1": "c8d78656bb2eddc6c8d32162425d2c3f0a1d8f2896118f3db9c11044d3faa28c"
+        "pact/flow/v1": "e9efca8a01c0427c838670f1c6ccd940bc13e2bdb44f3c0b7d70820a00de180e"
       },
       "public_jwk": {
         "crv": "Ed25519",

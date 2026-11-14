@@ -46,7 +46,7 @@ if [ "$level" = switches ]; then
   # The in-memory Cauthy's admin token, made for this run, like the password.
   CONFORMANCE_ADMIN_TOKEN=$(head -c 24 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=')
   export CONFORMANCE_ADMIN_TOKEN
-  switches="--cauthy http://127.0.0.1:$cauthy_port --admin-token-env CONFORMANCE_ADMIN_TOKEN --tenant acme --client-id acme-crm"
+  switches="--cauthy http://127.0.0.1:$cauthy_port --admin-token-env CONFORMANCE_ADMIN_TOKEN --tenant acme"
 fi
 
 # The key the target runs on, written by it (0600) and never printed.

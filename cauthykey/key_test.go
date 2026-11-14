@@ -17,7 +17,7 @@ import (
 
 // pinned is the sha256 of the vendored vectors (scripts/sync-spec.sh copies
 // them; a new copy changes this pin in the same commit).
-const pinned = "165199405ab31ed72390c4e8eabdc7488bb07a871683341bef25525ee0020522"
+const pinned = "0ec278678c72765535b5f6ba45bae8707b7d3025a3f34c63f92603e213ca6ad6"
 
 // testSecret is the bytes 00..1f: a test value, never a real key.
 const testSecret = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
