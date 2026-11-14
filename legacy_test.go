@@ -209,22 +209,3 @@ func otherKey(t *testing.T, f *cauthytest.Fake, key string) string {
 	}
 	return other
 }
-
-// Contracts are retired: their secret opens nothing, and New says what to
-// do instead of starting without it.
-func TestPactRootKeyStopsTheStart(t *testing.T) {
-	f := cauthytest.New()
-	key := f.IssueKey()
-	for _, name := range []string{"PACT_ROOT_KEY", "PACT_ROOT_KEY_PREVIOUS"} {
-		for _, env := range []map[string]string{
-			{"CAUTHY_KEY": key, name: "acme-root-key-for-tests-only-0123456789"},
-			{"CAUTHY_ISSUER": "https://id.example.com", "CAUTHY_CLIENT_ID": "acme-crm", "CAUTHY_SECRET": testSecret, name: "acme-root-key-for-tests-only-0123456789"},
-		} {
-			_, err := New(Options{Getenv: envOf(env), HTTPClient: f.Client(), Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
-			var ce *ConfigError
-			if !errors.As(err, &ce) || !strings.Contains(err.Error(), name+" is set, and contracts are retired: run on CAUTHY_KEY alone") {
-				t.Fatalf("%s: %v", name, err)
-			}
-		}
-	}
-}

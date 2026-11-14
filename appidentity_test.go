@@ -18,7 +18,7 @@ import (
 
 const testIdentity = `{"issuer":"https://id.test","audience":"https://id.test","tenant":{"id":"t1","slug":"acme"},"system":"acme-crm",
 "client_id":"client_x","sign_in_client_id":"client_x","app_urls":["http://localhost:3000"],"callback_path":"/api/auth/callback",
-"key":{"kid":"k1","retires_at":null},"contract":null}`
+"key":{"kid":"k1","retires_at":null}}`
 
 // scripted is a Cauthy that answers /v1/connect/self from a script, one
 // answer per call; the last answer repeats.

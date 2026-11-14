@@ -61,9 +61,6 @@ addresses, revalidated every five minutes. Cauthy keeps only the public half.
   sessions are read and sealed again with the key the first time they are read
   (one deprecation warning). A session nobody used during the window is lost
   with the old secret.
-- Contracts are retired: `PACT_ROOT_KEY` or `PACT_ROOT_KEY_PREVIOUS` in the
-  environment stops the start (`contracts are retired: run on CAUTHY_KEY
-  alone`). Remove them, and the key store and its table.
 
 The variables of 1.1 (`CAUTHY_ISSUER`, `CAUTHY_CLIENT_ID`, …) still work in 1.x
 with a deprecation warning (`slog`, `Warn`, `deprecated=true`, once per process)

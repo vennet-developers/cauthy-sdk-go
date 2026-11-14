@@ -142,7 +142,7 @@ type Auth struct {
 var baseURLRE = regexp.MustCompile(`^https?://[^/]+/*$`)
 
 // New makes Auth. It refuses to start, with a *ConfigError, on a missing or
-// damaged key, a missing variable, an unsafe option, or PACT_ROOT_KEY.
+// damaged key, a missing variable or an unsafe option.
 func New(o Options) (*Auth, error) {
 	getenv := o.Getenv
 	if getenv == nil {
@@ -163,13 +163,6 @@ func New(o Options) (*Auth, error) {
 	}
 	if a.replay == nil {
 		a.replay = MemoryReplay(a.now)
-	}
-
-	// Contracts are retired: their one secret opens nothing any more.
-	for _, name := range []string{"PACT_ROOT_KEY", "PACT_ROOT_KEY_PREVIOUS"} {
-		if getenv(name) != "" {
-			return nil, cfgerr.New("%s is set, and contracts are retired: run on CAUTHY_KEY alone (make it on the application's card in Cauthy's dashboard) and remove %s from the environment", name, name)
-		}
 	}
 
 	k, err := byKey(o, getenv)

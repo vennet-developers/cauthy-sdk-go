@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Removed
+
+- The startup refusal v1.3.0 gave an environment that still carried a contract's root key: it is ignored.
+
 ## v1.3.0 — contracts removed
 
 Pact contracts are retired, and contract mode is gone from the SDK. An application runs on its `CAUTHY_KEY` alone, and its people stay signed in.
@@ -7,14 +13,13 @@ Pact contracts are retired, and contract mode is gone from the SDK. An applicati
 ### Removed
 
 - **Contract mode**: `Options.Contract` and the `Contract` type, the `contract` package (reading the contracts graph), `VerifierConfigFromContract`, `Auth.Pact()` and the `Pact` type (its `Contract`, `Keys`, `JWKS` and `Status`), and `system.Client.PactStatus` / `system.PactStatus`.
-- **The key store and `PACT_ROOT_KEY`**: `Options.Keys`, `Options.RootKey`, `Options.RootKeyPrevious`, and the `keys` package (`Store`, `Memory`, `File`, `Postgres`, `TableSQL`, `Keys`, `Derive`, `JWKS`). `system.Options.Keys` and `KeysClientID` go with it; `system.Client.PublicJWKS` now answers a `system.JWKS`.
+- **The key store and the contract root key**: `Options.Keys`, `Options.RootKey`, `Options.RootKeyPrevious`, and the `keys` package (`Store`, `Memory`, `File`, `Postgres`, `TableSQL`, `Keys`, `Derive`, `JWKS`). `system.Options.Keys` and `KeysClientID` go with it; `system.Client.PublicJWKS` now answers a `system.JWKS`.
 - **Publishing a JWKS**: `Auth` no longer serves keys, and `Mount`, `MountRouter` and the `gin`, `echo` and `fiber` adapters mount the base path only. `JWKSPath()` and `DefaultJWKSPath` stay, deprecated, so the adapters released before 1.3.0 still compile; `Auth` answers 404 there.
 - `AppIdentity.Contract`, and `cauthykey.LabelSeal` (the spec's key reference no longer derives a seal key).
 - The SDK's own check of a link's `require_verified_email`. Cauthy enforces it: its `email_not_confirmed` refusal at the token endpoint is still answered as before.
 
 ### Changed
 
-- **`PACT_ROOT_KEY` or `PACT_ROOT_KEY_PREVIOUS` in the environment stops the start** with a `*ConfigError`: "contracts are retired: run on CAUTHY_KEY alone". Sessions sealed with the root key are no longer read; `CAUTHY_SECRET` beside `CAUTHY_KEY` still is.
 - **On `CAUTHY_KEY`, people sign in through the client Cauthy names** (`sign_in_client_id` of `GET /v1/connect/self`). When it is not the key's own, the people, and their refresh tokens, are on that client: the authorize redirect, the code exchange, renewals, revocation, sign-out, the account page, the look and the hosted-page and invitation calls go as that client. It is a public client: the key's assertion is sent for the key's own client only, and the code exchange carries the system's proof (`X-Cauthy-System-Token`). A renewal waits for Cauthy's answer first, so a refresh token is never spent on the wrong client. When the two clients are the same, nothing changes.
 - `Auth.ClientID()` is the client people sign in with: on `CAUTHY_KEY`, Cauthy's `sign_in_client_id` once it has answered.
 - `VerifierConfigFromKey` names no client, so a person's token issued through the sign-in client is accepted when the key is another client's (now covered by a test).
@@ -27,8 +32,8 @@ Pact contracts are retired, and contract mode is gone from the SDK. An applicati
 
 ### Fixed
 
-- **Moving to `CAUTHY_KEY`**: a session sealed with `CAUTHY_SECRET`, `PACT_ROOT_KEY` or `CAUTHY_KEY_PREVIOUS` is sealed again with the key on the first request that resolves it (`GET <basePath>/session`, the middleware, `Session(w, r)`), not only when its access token is renewed, so it outlives the old secret's removal.
-- `PACT_ROOT_KEY_PREVIOUS` beside `CAUTHY_KEY` and `PACT_ROOT_KEY` is read too: sessions sealed before a root rotation that was still open at the move stay readable. v1.2.0 read the current root only.
+- **Moving to `CAUTHY_KEY`**: a session sealed with `CAUTHY_SECRET`, the contract root key or `CAUTHY_KEY_PREVIOUS` is sealed again with the key on the first request that resolves it (`GET <basePath>/session`, the middleware, `Session(w, r)`), not only when its access token is renewed, so it outlives the old secret's removal.
+- the previous contract root key beside `CAUTHY_KEY` and the contract root key is read too: sessions sealed before a root rotation that was still open at the move stay readable. v1.2.0 read the current root only.
 - A session cookie that no configured key opens is still cleared, and is now logged once per process (`slog`, `Warn`), naming the secret to keep beside `CAUTHY_KEY` for the window.
 
 ## v1.2.0 — CAUTHY_KEY
@@ -38,9 +43,9 @@ One variable for every application: `CAUTHY_KEY`, made in Cauthy's dashboard (`k
 ### Added
 
 - **Key mode.** `cauthy.New(cauthy.Options{})` reads `CAUTHY_KEY` (or `Options.Key`) and nothing else: Ed25519 `private_key_jwt` on every call to the token and revoke endpoints (no client secret), the cookie and flow keys derived from the key, and who the application is asked of Cauthy (`GET /v1/connect/self`, revalidated every five minutes). Cauthy unreachable at start: `New` waits 10 seconds, then starts and answers `503 unavailable` on the auth routes until Cauthy answers; a refused key is `ErrMisconfigured` (`503 misconfigured` once running). The redirect URI comes from an origin Cauthy lists for the application (`400 unknown_origin` otherwise).
-- **Key + contract.** With a contract, `CAUTHY_KEY` replaces `PACT_ROOT_KEY` and the key store: the key proves the link's service client, and its public half is the JWKS at `jwks_url` (`EdDSA`). A key for another Cauthy is refused (`key_contract_issuer`).
+- **Key + contract.** With a contract, `CAUTHY_KEY` replaces the contract root key and the key store: the key proves the link's service client, and its public half is the JWKS at `jwks_url` (`EdDSA`). A key for another Cauthy is refused (`key_contract_issuer`).
 - `CAUTHY_KEY_PREVIOUS` (`Options.KeyPrevious`) for rotations: its sessions are read, never written, and by contract its public key is published too (`key_previous_mismatch` when it names another Cauthy or client).
-- `CAUTHY_SECRET` and `PACT_ROOT_KEY` beside `CAUTHY_KEY` are read-only previous keys while moving (one warning each); with `PACT_ROOT_KEY` the stored RS256 keys stay published.
+- `CAUTHY_SECRET` and the contract root key beside `CAUTHY_KEY` are read-only previous keys while moving (one warning each); with the contract root key the stored RS256 keys stay published.
 - `VerifierConfigFromKey(ctx, getenv, httpClient)`: a verifier's issuer, audience and workspace from `CAUTHY_KEY`.
 - `Auth.Identity(ctx)` and `AppIdentity`; `ErrUnavailable`, `ErrMisconfigured`; `KeyReplaces`.
 - Package `cauthykey`: the spec's reference (`Parse`, `Compose`, `Derive`, `Assertion`), byte for byte (`make key-reference`).
@@ -51,7 +56,7 @@ One variable for every application: `CAUTHY_KEY`, made in Cauthy's dashboard (`k
 ### Deprecated (removed in 2.0)
 
 - The `CAUTHY_*` variables mode, and the options `Issuer`, `ClientID`, `ClientSecret`, `Secret`, `System`, `Tenant`, `SystemKey`.
-- `PACT_ROOT_KEY` / `PACT_ROOT_KEY_PREVIOUS` (`RootKey`, `RootKeyPrevious`) and `Keys` (the key store) by contract.
+- The contract root keys (`RootKey`, `RootKeyPrevious`) and `Keys` (the key store) by contract.
 - `VerifierConfigFromEnv`.
 
 Each logs one warning per process (`slog`, level `Warn`, `deprecated=true`). Nothing else changes for an application that does not move.
