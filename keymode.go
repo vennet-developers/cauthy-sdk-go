@@ -137,6 +137,40 @@ func (a *Auth) Identity(ctx context.Context) (*AppIdentity, error) {
 	return id, nil
 }
 
+// signInClient is the client people sign in with. On CAUTHY_KEY it is
+// Cauthy's to say (sign_in_client_id): an application once connected by
+// contract has its key on the link's service client (pact.<link>.service),
+// and its people, and their refresh tokens, on the link's sign-in client
+// (pact.<link>). Otherwise, and before Cauthy has answered, the key's.
+func (a *Auth) signInClient() string {
+	if a.identity != nil {
+		if id := a.identity.Current(); id != nil && id.SignInClientID != "" {
+			return id.SignInClientID
+		}
+	}
+	return a.clientID
+}
+
+// signInClientFor is signInClient, waiting for Cauthy's answer first where
+// the wrong client would cost a session: a refresh token belongs to the
+// client it was issued to.
+func (a *Auth) signInClientFor(ctx context.Context) (string, error) {
+	if a.identity == nil {
+		return a.clientID, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, keyRequestWait)
+	defer cancel()
+	id, err := a.identity.Wait(ctx)
+	if err != nil {
+		return "", err
+	}
+	a.adopt(id)
+	if id.SignInClientID != "" {
+		return id.SignInClientID, nil
+	}
+	return a.clientID, nil
+}
+
 // identified answers 503 on the auth routes while the application on
 // CAUTHY_KEY does not know who it is, and 400 unknown_origin for a request
 // from an address Cauthy does not list for it. nil lets the request through.

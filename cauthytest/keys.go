@@ -149,6 +149,14 @@ func (f *Fake) systemToken(w http.ResponseWriter, kid string) {
 	reply(w, 200, map[string]any{"access_token": tok, "token_type": "Bearer", "expires_in": f.ExpiresIn})
 }
 
+// signInClientOf is the client people sign in through for a key's client. f.mu is held.
+func (f *Fake) signInClientOf(keyClient string) string {
+	if c := f.SignInClients[keyClient]; c != "" {
+		return c
+	}
+	return keyClient
+}
+
 // self answers GET /v1/connect/self for a key's system token. f.mu is held.
 func (f *Fake) self(w http.ResponseWriter, r *http.Request) {
 	kid, ok := f.systemTokens[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")]
@@ -162,7 +170,7 @@ func (f *Fake) self(w http.ResponseWriter, r *http.Request) {
 	}
 	body, _ := json.Marshal(map[string]any{"data": map[string]any{
 		"issuer": f.keyring[kid].issuer, "audience": f.keyring[kid].issuer, "tenant": map[string]any{"id": TenantID, "slug": f.Tenant},
-		"system": f.System, "client_id": f.keyring[kid].clientID, "sign_in_client_id": f.keyring[kid].clientID,
+		"system": f.System, "client_id": f.keyring[kid].clientID, "sign_in_client_id": f.signInClientOf(f.keyring[kid].clientID),
 		"app_urls": urls, "callback_path": "/api/auth/callback", "key": map[string]any{"kid": kid, "retires_at": nil}, "contract": nil,
 	}})
 	sum := sha256.Sum256(body)

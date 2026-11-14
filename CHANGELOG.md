@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+An application once connected by contract runs on its `CAUTHY_KEY` alone, and its people stay signed in.
+
+### Changed
+
+- **On `CAUTHY_KEY`, people sign in through the client Cauthy names** (`sign_in_client_id` of `GET /v1/connect/self`). An application connected by contract has its key on the link's service client (`pact.<link>.service`) and its people, and their refresh tokens, on the link's sign-in client (`pact.<link>`): the authorize redirect, the code exchange, renewals, revocation, sign-out, the account page, the look and the hosted-page and invitation calls now go as that client. It is a public client: the key's assertion is sent for the key's own client only, and the code exchange carries the system's proof (`X-Cauthy-System-Token`), as contract mode sends it. A renewal waits for Cauthy's answer first, so a refresh token is never spent on the wrong client. When the two clients are the same, nothing changes.
+- **The same key keeps every session**: a session signed in by contract on `CAUTHY_KEY` is read and renewed on the same key with `Options.Contract` removed.
+- `Auth.ClientID()` is the client people sign in with: on `CAUTHY_KEY`, Cauthy's `sign_in_client_id` once it has answered.
+- `VerifierConfigFromKey` names no client, so a person's token issued through the sign-in client is accepted when the key is another client's (now covered by a test).
+- `cauthytest`: `Fake.SignInClients` (the key's client → the sign-in client `/v1/connect/self` names). The fake now binds a code to the client that asked for it and a refresh token to the client it was issued to, as Cauthy does.
+- The `acme-api` example verifies with `VerifierConfigFromKey`.
+
+### Deprecated (removed in 2.0)
+
+- `Options.Contract` (and the `Contract` type): one warning per process (`slog`, `Warn`, `deprecated=true`). Remove it and keep `CAUTHY_KEY`; protect sign-in with the "Protect sign-in" switches on the application's card in Cauthy's dashboard.
+- The `contract` package and `VerifierConfigFromContract`: use `VerifierConfigFromKey`.
+
 ## v1.2.1 — sessions kept when moving to CAUTHY_KEY
 
 ### Fixed

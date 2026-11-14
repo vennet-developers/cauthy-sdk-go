@@ -42,7 +42,7 @@ func (a *Auth) ask(r *http.Request, method, path string, payload any, o askOpts)
 	} else {
 		h.Set("X-Cauthy-Links", "hosted")
 	}
-	h.Set("X-Cauthy-Client-Id", a.clientID)
+	h.Set("X-Cauthy-Client-Id", a.signInClient())
 	for k, v := range a.passedOn(r) {
 		h[k] = v
 	}

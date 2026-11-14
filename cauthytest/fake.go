@@ -87,6 +87,12 @@ type Fake struct {
 	// AppURLs are the application's addresses GET /v1/connect/self answers.
 	// Default http://localhost:3000.
 	AppURLs []string
+	// SignInClients is the client people sign in through, by the key's
+	// client, as GET /v1/connect/self answers it (sign_in_client_id): an
+	// application once connected by contract has its key on
+	// pact.<link>.service and its people on pact.<link>. Absent: the key's
+	// own client. Set it before the fake serves.
+	SignInClients map[string]string
 
 	mu        sync.Mutex
 	users     map[string]*User
@@ -94,6 +100,7 @@ type Fake struct {
 	orgs      map[string][]map[string]any
 	codes     map[string]code
 	refresh   map[string]string
+	refreshOf map[string]string // refresh token → the client it was issued to
 	access    map[string]string
 	revoked   []string
 	calls     []Call
@@ -108,7 +115,7 @@ type Fake struct {
 	systemTokens map[string]string
 }
 
-type code struct{ sub, challenge, redirectURI string }
+type code struct{ sub, challenge, redirectURI, clientID string }
 
 // New is a fake Cauthy with one account, ana@example.com (u1), and no password.
 func New() *Fake {
@@ -116,7 +123,7 @@ func New() *Fake {
 		Issuer: "https://id.test", Tenant: "acme", ExpiresIn: 600, ClientID: "acme-crm", System: "acme-crm", AppURLs: []string{"http://localhost:3000"},
 		Settings: map[string]any{"allow_password": true, "allow_signup": false, "allow_passkeys": false, "persistent_sessions": false},
 		users:    map[string]*User{}, passwords: map[string]string{}, orgs: map[string][]map[string]any{},
-		codes: map[string]code{}, refresh: map[string]string{}, access: map[string]string{}, scripted: map[string]func(Call) Reply{},
+		codes: map[string]code{}, refresh: map[string]string{}, refreshOf: map[string]string{}, SignInClients: map[string]string{}, access: map[string]string{}, scripted: map[string]func(Call) Reply{},
 		keyring: map[string]*fakeKey{}, keyClients: map[string]bool{}, jtis: map[string]bool{}, systemTokens: map[string]string{},
 	}
 	f.AddUser(User{Sub: "u1", Email: "ana@example.com", Name: "Ana", Active: true}, "")
@@ -228,7 +235,7 @@ func (f *Fake) Authorize(location, sub string) (string, error) {
 	f.mu.Lock()
 	f.n++
 	c := fmt.Sprintf("code-%d", f.n)
-	f.codes[c] = code{sub: sub, challenge: q.Get("code_challenge"), redirectURI: q.Get("redirect_uri")}
+	f.codes[c] = code{sub: sub, challenge: q.Get("code_challenge"), redirectURI: q.Get("redirect_uri"), clientID: q.Get("client_id")}
 	f.mu.Unlock()
 	return q.Get("redirect_uri") + "?code=" + c + "&state=" + url.QueryEscape(q.Get("state")), nil
 }
@@ -241,6 +248,15 @@ func (f *Fake) Issue(sub string) map[string]any {
 }
 
 func (f *Fake) issue(sub string) map[string]any { return f.issueKind(sub, nil) }
+
+// bound ties a token answer's refresh token to the client it was issued
+// to. f.mu is held.
+func (f *Fake) bound(out map[string]any, clientID string) map[string]any {
+	if rt, ok := out["refresh_token"].(string); ok && clientID != "" {
+		f.refreshOf[rt] = clientID
+	}
+	return out
+}
 
 // issueKind is a token answer; kind is what a sign-in asked for (remember)
 // when the client allows long sessions. Persistent wins when set.
@@ -423,19 +439,25 @@ func (f *Fake) tokenEndpoint(w http.ResponseWriter, c Call) {
 		got, ok := f.codes[c.Form.Get("code")]
 		delete(f.codes, c.Form.Get("code"))
 		sum := sha256.Sum256([]byte(c.Form.Get("code_verifier")))
-		if !ok || got.challenge != base64.RawURLEncoding.EncodeToString(sum[:]) || got.redirectURI != c.Form.Get("redirect_uri") {
+		// A code is for the client that asked for it, as Cauthy has it.
+		wrongClient := got.clientID != "" && got.clientID != c.Form.Get("client_id")
+		if !ok || wrongClient || got.challenge != base64.RawURLEncoding.EncodeToString(sum[:]) || got.redirectURI != c.Form.Get("redirect_uri") {
 			reply(w, 400, invalid)
 			return
 		}
-		reply(w, 200, f.issue(got.sub))
+		reply(w, 200, f.bound(f.issue(got.sub), c.Form.Get("client_id")))
 	case "refresh_token":
-		sub, ok := f.refresh[c.Form.Get("refresh_token")]
-		delete(f.refresh, c.Form.Get("refresh_token")) // used once
-		if u := f.users[sub]; !ok || u == nil || !u.Active {
+		rt := c.Form.Get("refresh_token")
+		sub, ok := f.refresh[rt]
+		// A refresh token belongs to the client it was issued to.
+		owner, bound := f.refreshOf[rt]
+		delete(f.refresh, rt) // used once
+		delete(f.refreshOf, rt)
+		if u := f.users[sub]; !ok || u == nil || !u.Active || (bound && owner != c.Form.Get("client_id")) {
 			reply(w, 400, invalid)
 			return
 		}
-		reply(w, 200, f.issue(sub))
+		reply(w, 200, f.bound(f.issue(sub), c.Form.Get("client_id")))
 	default:
 		reply(w, 400, map[string]any{"error": "unsupported_grant_type", "error_description": "supported grant types: authorization_code, refresh_token"})
 	}

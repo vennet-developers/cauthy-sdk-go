@@ -85,9 +85,13 @@ r.With(verifier.Require).Get("/api/records", func(w http.ResponseWriter, r *http
 })
 ```
 
-By contract, `contract.Read` the graph and pass it to `cauthy.VerifierConfigFromContract`;
-it names the link's sign-in client (`ClientID`), and a person's token issued through
-another client is refused (`wrong_client`; a token with no `azp` passes).
+`VerifierConfigFromKey` names no client: a person's token is accepted whichever of
+the workspace's clients issued it, including the sign-in client Cauthy names for an
+application once connected by contract (`pact.<link>`, while its key is
+`pact.<link>.service`). `VerifierConfig.ClientID` refuses a token issued through
+another client (`wrong_client`; a token with no `azp` passes).
+`VerifierConfigFromContract` and the `contract` package still work and are
+deprecated: contracts are retired.
 A system's own token (`sys`), a client's own token (`token_use`, from a
 `client_credentials` grant: reason `client_token`) and a guest's token are refused
 where a person is expected. An endpoint that machines call sets
@@ -102,7 +106,21 @@ still works and is deprecated.
 
 ## The whole backend: serve the auth-bff protocol
 
-By contract, on the same `CAUTHY_KEY` and no key store:
+On `CAUTHY_KEY`, people sign in through the client Cauthy names
+(`sign_in_client_id` of `GET /v1/connect/self`). It is the key's own, except for an
+application once connected by contract: its key is the link's service client
+(`pact.<link>.service`) and its people, and their refresh tokens, are on the link's
+sign-in client (`pact.<link>`). The authorize redirect, code exchange, renewals,
+revocation and the hosted-page calls go as that client, a public one: no assertion,
+and the code exchange carries the system's proof, as contract mode sends it.
+
+### Contract mode (deprecated)
+
+Contracts are retired. Remove `Options.Contract` and run on `CAUTHY_KEY` alone: the
+same key keeps every session, and people keep signing in through `pact.<link>`.
+Protect sign-in with the **Protect sign-in** switches on the application's card in
+Cauthy's dashboard. The option keeps working through 1.x and logs one warning per
+process. By contract, on the same `CAUTHY_KEY` and no key store:
 
 ```go
 graph, err := os.ReadFile("contracts/graph.json")

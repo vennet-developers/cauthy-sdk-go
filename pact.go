@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	//lint:ignore SA1019 contract mode keeps working through 1.x; it leaves in 2.0
 	"github.com/vennet-developers/cauthy-sdk-go/contract"
 	"github.com/vennet-developers/cauthy-sdk-go/keys"
 	"github.com/vennet-developers/cauthy-sdk-go/system"

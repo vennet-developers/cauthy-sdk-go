@@ -211,7 +211,7 @@ func (n answer) ok() bool { return n.err == nil && n.status >= 200 && n.status <
 // ("email_not_confirmed", "invalid_grant"…). Anything else is a failure to
 // ask.
 func (a *Auth) token(ctx context.Context, form url.Values, proof http.Header) (body any, ok, ended bool, code string) {
-	if err := a.authenticate(form); err != nil {
+	if err := a.authenticate(ctx, form); err != nil {
 		return nil, false, false, ""
 	}
 	h := http.Header{"Content-Type": {"application/x-www-form-urlencoded"}, "Accept": {"application/json"}}
@@ -231,10 +231,18 @@ func (a *Auth) token(ctx context.Context, form url.Values, proof http.Header) (b
 
 // authenticate says which client a call to the token or revoke endpoint is
 // for, and proves it: on CAUTHY_KEY a fresh assertion signed with the key
-// (never a secret), else the client's secret when it has one.
-func (a *Auth) authenticate(form url.Values) error {
-	form.Set("client_id", a.clientID)
-	if a.signer != nil && a.signer.ClientID == a.clientID {
+// (never a secret), else the client's secret when it has one. The client is
+// the one people sign in with: when Cauthy names one other than the key's
+// (an application once connected by contract), it is the link's public
+// sign-in client, as contract mode always sent it: no assertion, and the
+// code exchange carries the system's proof.
+func (a *Auth) authenticate(ctx context.Context, form url.Values) error {
+	client, err := a.signInClientFor(ctx)
+	if err != nil {
+		return err
+	}
+	form.Set("client_id", client)
+	if a.signer != nil && a.signer.ClientID == client {
 		assertion, err := a.signer.Assertion(a.issuer+"/v1/oauth/token", a.now())
 		if err != nil {
 			return err
@@ -282,7 +290,7 @@ func (a *Auth) userinfo(ctx context.Context, accessToken string) *who {
 // revoke tells Cauthy, best effort, that a refresh token is no longer wanted.
 func (a *Auth) revoke(ctx context.Context, refreshToken string) {
 	form := url.Values{"token": {refreshToken}}
-	if a.authenticate(form) != nil {
+	if a.authenticate(ctx, form) != nil {
 		return
 	}
 	a.fetch(ctx, http.MethodPost, a.issuer+"/v1/oauth/revoke", http.Header{"Content-Type": {"application/x-www-form-urlencoded"}}, []byte(form.Encode()))

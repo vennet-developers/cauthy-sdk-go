@@ -26,7 +26,7 @@ func (a *Auth) lookRoute(r *http.Request, _ string) *reply {
 	hit := a.look
 	a.cacheMu.Unlock()
 	if hit == nil || a.now().After(hit.until) {
-		n := a.ask(r, http.MethodGet, "/v1/auth/look/"+url.PathEscape(a.clientID), nil, askOpts{})
+		n := a.ask(r, http.MethodGet, "/v1/auth/look/"+url.PathEscape(a.signInClient()), nil, askOpts{})
 		look := n.data
 		if n.err != nil || look == nil {
 			look = map[string]any{}

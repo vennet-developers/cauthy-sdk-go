@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/vennet-developers/cauthy-sdk-go/cauthykey"
+	//lint:ignore SA1019 contract mode keeps working through 1.x; it leaves in 2.0
 	"github.com/vennet-developers/cauthy-sdk-go/contract"
 	"github.com/vennet-developers/cauthy-sdk-go/internal/cfgerr"
 	"github.com/vennet-developers/cauthy-sdk-go/keys"
@@ -23,6 +24,9 @@ import (
 
 // Contract is how an application runs by contract: its Pact graph and its
 // system id in it (contract.Options).
+//
+// Deprecated: contracts are retired. Run on CAUTHY_KEY alone; see
+// Options.Contract.
 type Contract = contract.Options
 
 // Pages are the application's own pages for what Cauthy mails: a link opens
@@ -100,6 +104,13 @@ type Options struct {
 	HTTPClient *http.Client
 	Timeouts   Timeouts
 	// Contract runs the application by contract.
+	//
+	// Deprecated: contracts are retired. Remove it and run on CAUTHY_KEY
+	// alone: the same key keeps every session, and people keep signing in
+	// through the link's client, which Cauthy names (sign_in_client_id).
+	// Protect sign-in with the "Protect sign-in" switches on the
+	// application's card in Cauthy's dashboard. It keeps working through 1.x
+	// and logs one warning per process.
 	Contract *Contract
 	// Keys is where the application keeps its own key, by contract
 	// (keys.Postgres(db)). Required when the link has a service block.
@@ -197,6 +208,7 @@ func New(o Options) (*Auth, error) {
 
 	var root, previous string
 	if o.Contract != nil {
+		deprecated(a.log, "The Contract option", "Contracts are retired: remove the option and run on CAUTHY_KEY alone (an application without one makes it on its card in Cauthy's dashboard). The same key keeps every session: people keep signing in through the client Cauthy names for it. Protect sign-in with the \"Protect sign-in\" switches on the application's card.")
 		// On CAUTHY_KEY, byKey refused the variables the key replaces.
 		if a.keyed == nil {
 			if err := contract.FailClosed(getenv); err != nil {
@@ -453,8 +465,9 @@ func (a *Auth) BasePath() string { return a.basePath }
 // Issuer is Cauthy's address.
 func (a *Auth) Issuer() string { return a.issuer }
 
-// ClientID is the client people sign in with.
-func (a *Auth) ClientID() string { return a.clientID }
+// ClientID is the client people sign in with. On CAUTHY_KEY it is Cauthy's
+// answer (sign_in_client_id) once it has come, else the key's client.
+func (a *Auth) ClientID() string { return a.signInClient() }
 
 // System is the application acting on its own.
 func (a *Auth) System() *system.Client { return a.sys }

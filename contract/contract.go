@@ -2,6 +2,12 @@
 // context graph (core-contracts' graph.json, as `cauthy contracts pull`
 // writes it), by the rules of cauthy-sdk-spec's contract/pact.md, the same
 // way @cauthyhq/node's readContract does.
+//
+// Deprecated: contracts are retired. An application runs on CAUTHY_KEY
+// alone (cauthy.New with no Contract, cauthy.VerifierConfigFromKey); the
+// same key keeps every session, and sign-in is protected with the "Protect
+// sign-in" switches on the application's card in Cauthy's dashboard. The
+// package leaves in 2.0.
 package contract
 
 import (

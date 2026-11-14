@@ -2,39 +2,25 @@
 // (a Node BFF on @cauthyhq/node, say): it verifies Cauthy's access tokens and
 // nothing else. No secret, no call to Cauthy per request.
 //
-// By contract (contracts/graph.json present) the issuer, audience and
-// workspace come from the application's link; otherwise from
-// CAUTHY_ISSUER, CAUTHY_AUDIENCE and CAUTHY_TENANT_ID.
+// The issuer, audience and workspace come from CAUTHY_KEY alone: the API
+// asks Cauthy once at start who the application is.
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
-	"os"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	cauthy "github.com/vennet-developers/cauthy-sdk-go"
-	"github.com/vennet-developers/cauthy-sdk-go/contract"
 )
 
-func config() (cauthy.VerifierConfig, error) {
-	graph, err := os.ReadFile("contracts/graph.json")
-	if os.IsNotExist(err) {
-		return cauthy.VerifierConfigFromEnv(nil)
-	}
-	if err != nil {
-		return cauthy.VerifierConfig{}, err
-	}
-	link, err := contract.Read(contract.Options{Graph: graph, System: "acme-crm"})
-	if err != nil {
-		return cauthy.VerifierConfig{}, err
-	}
-	return cauthy.VerifierConfigFromContract(link)
-}
-
 func main() {
-	cfg, err := config()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cfg, err := cauthy.VerifierConfigFromKey(ctx, nil, nil)
 	if err != nil {
 		log.Fatal(err)
 	}

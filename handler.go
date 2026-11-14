@@ -84,7 +84,7 @@ func (a *Auth) serve(r *http.Request, route string) *reply {
 		}
 		return redirect(back, res.Cookies...)
 	case route == "/account" && get:
-		q := url.Values{"client_id": {a.clientID}}
+		q := url.Values{"client_id": {a.signInClient()}}
 		if back := localPath(r.URL.Query().Get("return_to"), ""); back != "" {
 			q.Set("return_to", a.originOf(r)+back)
 		}
@@ -156,7 +156,7 @@ func (a *Auth) login(r *http.Request) *reply {
 	q := r.URL.Query()
 	f := flow{State: random(32), Verifier: random(48), ReturnTo: localPath(q.Get("return_to"), a.afterSignIn)}
 	v := url.Values{
-		"client_id": {a.clientID}, "redirect_uri": {a.originOf(r) + a.basePath + "/callback"}, "response_type": {"code"},
+		"client_id": {a.signInClient()}, "redirect_uri": {a.originOf(r) + a.basePath + "/callback"}, "response_type": {"code"},
 		"state": {f.State}, "code_challenge": {challenge(f.Verifier)}, "code_challenge_method": {"S256"},
 	}
 	if p := q.Get("prompt"); p == "login" || p == "none" {
@@ -261,7 +261,7 @@ func (a *Auth) logout(r *http.Request) *reply {
 		a.revoke(r.Context(), value.RT)
 		a.forgetOrganizations(value.AT)
 	}
-	q := url.Values{"client_id": {a.clientID}, "post_logout_redirect_uri": {a.originOf(r) + a.afterSignOut}}
+	q := url.Values{"client_id": {a.signInClient()}, "post_logout_redirect_uri": {a.originOf(r) + a.afterSignOut}}
 	return redirect(a.issuer+"/v1/oauth/logout?"+q.Encode(), a.clearSession(r, had)...)
 }
 

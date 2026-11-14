@@ -70,7 +70,7 @@ func (a *Auth) memberChange(r *http.Request, route string, b map[string]any, p *
 		// Adding never changes the role of somebody already there; a person
 		// new to the workspace is invited, the mail opening this
 		// application's page for it when it has one.
-		payload := map[string]any{"email": trimmed(b["email"]), "role": role, "name": trimmed(b["name"]), "client_id": a.clientID, "only_new": true}
+		payload := map[string]any{"email": trimmed(b["email"]), "role": role, "name": trimmed(b["name"]), "client_id": a.signInClient(), "only_new": true}
 		if locale != "" {
 			payload["locale"] = locale
 		}
@@ -110,7 +110,7 @@ func (a *Auth) memberChange(r *http.Request, route string, b map[string]any, p *
 		a.forgetOrganizations(p.token)
 		return ok(map[string]any{"status": "removed", "userId": user}, p.header)
 	}
-	payload := map[string]any{"client_id": a.clientID}
+	payload := map[string]any{"client_id": a.signInClient()}
 	if locale != "" {
 		payload["locale"] = locale
 	}

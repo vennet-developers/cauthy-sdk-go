@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	//lint:ignore SA1019 contract mode keeps working through 1.x; it leaves in 2.0
 	"github.com/vennet-developers/cauthy-sdk-go/contract"
 	"github.com/vennet-developers/cauthy-sdk-go/internal/cfgerr"
 	"github.com/vennet-developers/cauthy-sdk-go/system"
@@ -18,7 +19,12 @@ import (
 // (GET /v1/connect/self); the issuer, audience and workspace are Cauthy's
 // answer. It waits for Cauthy until ctx is done: ErrUnavailable when Cauthy
 // has not answered, ErrMisconfigured when it refuses the key. None of
-// KeyReplaces may be set beside the key. getenv nil is os.Getenv; hc nil a
+// KeyReplaces may be set beside the key.
+//
+// It names no ClientID: a person's token is accepted whichever of the
+// workspace's clients issued it, the key's or the sign-in client Cauthy names
+// for it (sign_in_client_id, pact.<link> for an application once connected
+// by contract, whose key is on pact.<link>.service). getenv nil is os.Getenv; hc nil a
 // plain client.
 func VerifierConfigFromKey(ctx context.Context, getenv func(string) string, hc *http.Client) (VerifierConfig, error) {
 	if getenv == nil {
@@ -88,6 +94,11 @@ func VerifierConfigFromEnv(getenv func(string) string) (VerifierConfig, error) {
 // audience and algorithm of the capability the link uses, and the link's
 // sign-in client (a person's token issued through another is refused with
 // wrong_client).
+//
+// Deprecated: contracts are retired. Use VerifierConfigFromKey with the
+// application's CAUTHY_KEY: it accepts the tokens of the client people sign
+// in with, also when that is not the key's own (an application once
+// connected by contract). It leaves in 2.0.
 func VerifierConfigFromContract(c *contract.Resolved) (VerifierConfig, error) {
 	if c.Audience == "" {
 		return VerifierConfig{}, cfgerr.New("the link %s uses a capability that names no token audience: set VerifierConfig.Audience", c.Link)

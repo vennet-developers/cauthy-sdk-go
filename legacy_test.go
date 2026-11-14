@@ -139,7 +139,8 @@ func TestKeyReadsTheSessionsOfPactRootKeyWhileMoving(t *testing.T) {
 	if sessionUser(after, b) != "u1" {
 		t.Fatal("a session of PACT_ROOT_KEY is not read")
 	}
-	if d := c.deprecations(); len(d) != 1 || !strings.Contains(d[0], "PACT_ROOT_KEY beside CAUTHY_KEY") {
+	// PACT_ROOT_KEY beside the key, and the Contract option itself.
+	if d := c.deprecations(); len(d) != 2 || saying(d, "PACT_ROOT_KEY beside CAUTHY_KEY") != 1 || saying(d, "The Contract option") != 1 {
 		t.Fatalf("%v", d)
 	}
 	// The stored RS256 key stays published beside the new one; none is made.
@@ -180,9 +181,20 @@ func TestTheLegacyContractWarnsOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if d := c.deprecations(); len(d) != 1 || !strings.Contains(d[0], "PACT_ROOT_KEY") || !strings.Contains(d[0], "CAUTHY_KEY") {
+	if d := c.deprecations(); len(d) != 2 || saying(d, "PACT_ROOT_KEY is deprecated") != 1 || saying(d, "The Contract option") != 1 {
 		t.Fatalf("%v", d)
 	}
+}
+
+// saying is how many of the records say what.
+func saying(records []string, what string) int {
+	n := 0
+	for _, r := range records {
+		if strings.Contains(r, what) {
+			n++
+		}
+	}
+	return n
 }
 
 // moved is the Auth on CAUTHY_KEY with what env adds beside it, by contract
