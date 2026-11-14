@@ -28,8 +28,7 @@ type fakeKey struct {
 // IssueKey makes a CAUTHY_KEY for ClientID on Issuer, as Cauthy's dashboard
 // does: a random secret, and only the public half registered. ClientID
 // becomes a key client: its code exchanges, refreshes and revocations need
-// the key's assertion. Set Issuer and ClientID first (a contract's service
-// client is pact.<link>.service).
+// the key's assertion. Set Issuer and ClientID first.
 func (f *Fake) IssueKey() string {
 	raw := make([]byte, 32)
 	_, _ = rand.Read(raw)
@@ -171,7 +170,7 @@ func (f *Fake) self(w http.ResponseWriter, r *http.Request) {
 	body, _ := json.Marshal(map[string]any{"data": map[string]any{
 		"issuer": f.keyring[kid].issuer, "audience": f.keyring[kid].issuer, "tenant": map[string]any{"id": TenantID, "slug": f.Tenant},
 		"system": f.System, "client_id": f.keyring[kid].clientID, "sign_in_client_id": f.signInClientOf(f.keyring[kid].clientID),
-		"app_urls": urls, "callback_path": "/api/auth/callback", "key": map[string]any{"kid": kid, "retires_at": nil}, "contract": nil,
+		"app_urls": urls, "callback_path": "/api/auth/callback", "key": map[string]any{"kid": kid, "retires_at": nil},
 	}})
 	sum := sha256.Sum256(body)
 	etag := `"` + base64.RawURLEncoding.EncodeToString(sum[:12]) + `"`

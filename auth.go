@@ -14,20 +14,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vennet-developers/cauthy-sdk-go/cauthykey"
-	//lint:ignore SA1019 contract mode keeps working through 1.x; it leaves in 2.0
-	"github.com/vennet-developers/cauthy-sdk-go/contract"
 	"github.com/vennet-developers/cauthy-sdk-go/internal/cfgerr"
-	"github.com/vennet-developers/cauthy-sdk-go/keys"
+	"github.com/vennet-developers/cauthy-sdk-go/internal/keyring"
 	"github.com/vennet-developers/cauthy-sdk-go/system"
 )
-
-// Contract is how an application runs by contract: its Pact graph and its
-// system id in it (contract.Options).
-//
-// Deprecated: contracts are retired. Run on CAUTHY_KEY alone; see
-// Options.Contract.
-type Contract = contract.Options
 
 // Pages are the application's own pages for what Cauthy mails: a link opens
 // the page named here, with a token to give back; with none, Cauthy's own.
@@ -54,9 +44,7 @@ type Timeouts struct {
 // Options configure Auth. On CAUTHY_KEY (Key, or the variable) everything
 // else comes from the key and from Cauthy, and none of KeyReplaces may be
 // set. In variables mode every field left empty is read from its CAUTHY_*
-// variable; in contract mode (Contract set) the issuer, the workspace and
-// the clients come from the contract, and none of the CAUTHY_* variables may
-// be set.
+// variable.
 type Options struct {
 	// Key is the application's CAUTHY_KEY, made in Cauthy's dashboard.
 	// Default: the CAUTHY_KEY variable. With it, nothing else is read.
@@ -103,22 +91,6 @@ type Options struct {
 	// HTTPClient reaches Cauthy. Default: a plain client.
 	HTTPClient *http.Client
 	Timeouts   Timeouts
-	// Contract runs the application by contract.
-	//
-	// Deprecated: contracts are retired. Remove it and run on CAUTHY_KEY
-	// alone: the same key keeps every session, and people keep signing in
-	// through the link's client, which Cauthy names (sign_in_client_id).
-	// Protect sign-in with the "Protect sign-in" switches on the
-	// application's card in Cauthy's dashboard. It keeps working through 1.x
-	// and logs one warning per process.
-	Contract *Contract
-	// Keys is where the application keeps its own key, by contract
-	// (keys.Postgres(db)). Required when the link has a service block.
-	Keys keys.Store
-	// RootKey is the one secret of a contracted application. PACT_ROOT_KEY.
-	RootKey string
-	// RootKeyPrevious is the root key before it, while rotating. PACT_ROOT_KEY_PREVIOUS.
-	RootKeyPrevious string
 	// WebhookReplay remembers deliveries Auth.Webhook took. Default: memory.
 	WebhookReplay ReplayStore
 	// Getenv reads the environment. Default os.Getenv.
@@ -129,9 +101,8 @@ type Options struct {
 	Now func() time.Time
 }
 
-// Auth serves the auth-bff protocol at level strict under its base path, and
-// the application's published keys at its JWKS path when it runs by
-// contract. It is an http.Handler: mount it at both (Mount does).
+// Auth serves the auth-bff protocol at level strict under its base path. It
+// is an http.Handler: mount it there (Mount does).
 type Auth struct {
 	issuer, clientID, clientSecret, system, tenant  string
 	basePath, afterSignIn, afterSignOut             string
@@ -139,8 +110,6 @@ type Auth struct {
 	requestHeader, baseURL                          string
 	pages                                           Pages
 	cookieRing, flowRing                            [][]byte
-	contract                                        *contract.Resolved
-	ownKeys                                         *keys.Keys
 	sys                                             *system.Client
 	http                                            *http.Client
 	requestTimeout                                  time.Duration
@@ -148,7 +117,6 @@ type Auth struct {
 	log                                             *slog.Logger
 	replay                                          ReplayStore
 	now                                             func() time.Time
-	pact                                            *Pact
 
 	// CAUTHY_KEY (keymode.go)
 	keyed    *keyed
@@ -173,8 +141,8 @@ type Auth struct {
 
 var baseURLRE = regexp.MustCompile(`^https?://[^/]+/*$`)
 
-// New makes Auth. It refuses to start, with a *ConfigError, on anything
-// contract/pact.md lists, a missing variable, or an unsafe option.
+// New makes Auth. It refuses to start, with a *ConfigError, on a missing or
+// damaged key, a missing variable, an unsafe option, or PACT_ROOT_KEY.
 func New(o Options) (*Auth, error) {
 	getenv := o.Getenv
 	if getenv == nil {
@@ -197,6 +165,13 @@ func New(o Options) (*Auth, error) {
 		a.replay = MemoryReplay(a.now)
 	}
 
+	// Contracts are retired: their one secret opens nothing any more.
+	for _, name := range []string{"PACT_ROOT_KEY", "PACT_ROOT_KEY_PREVIOUS"} {
+		if getenv(name) != "" {
+			return nil, cfgerr.New("%s is set, and contracts are retired: run on CAUTHY_KEY alone (make it on the application's card in Cauthy's dashboard) and remove %s from the environment", name, name)
+		}
+	}
+
 	k, err := byKey(o, getenv)
 	if err != nil {
 		return nil, err
@@ -204,49 +179,7 @@ func New(o Options) (*Auth, error) {
 	if k != nil {
 		a.keyed = k
 		a.issuer, a.clientID = k.key.Issuer, k.key.ClientID
-	}
-
-	var root, previous string
-	if o.Contract != nil {
-		deprecated(a.log, "The Contract option", "Contracts are retired: remove the option and run on CAUTHY_KEY alone (an application without one makes it on its card in Cauthy's dashboard). The same key keeps every session: people keep signing in through the client Cauthy names for it. Protect sign-in with the \"Protect sign-in\" switches on the application's card.")
-		// On CAUTHY_KEY, byKey refused the variables the key replaces.
-		if a.keyed == nil {
-			if err := contract.FailClosed(getenv); err != nil {
-				return nil, err
-			}
-		}
-		for name, v := range map[string]bool{"ClientID": o.ClientID != "", "ClientSecret": o.ClientSecret != "", "Secret": o.Secret != "",
-			"System": o.System != "", "Tenant": o.Tenant != "", "SystemKey": o.SystemKey != nil} {
-			if v {
-				return nil, cfgerr.New("with a contract, %s comes from the contract: do not pass it", name)
-			}
-		}
-		c, err := contract.Read(*o.Contract)
-		if err != nil {
-			return nil, err
-		}
-		a.contract = c
-		if a.keyed != nil {
-			// The key names the graph's Cauthy; which client it may prove is
-			// Cauthy's to decide (the link's service client, or one adopted).
-			if a.keyed.key.Issuer != c.Issuer {
-				return nil, &cauthykey.Error{Reason: "key_contract_issuer", Msg: "CAUTHY_KEY: the key names " + a.keyed.key.Issuer + ", the contract's Cauthy is " + c.Issuer}
-			}
-		} else {
-			deprecated(a.log, "PACT_ROOT_KEY", "Generate CAUTHY_KEY on the application's card in Cauthy's dashboard, and remove PACT_ROOT_KEY and the key store.")
-			root, previous = or(o.RootKey, "PACT_ROOT_KEY"), or(o.RootKeyPrevious, "PACT_ROOT_KEY_PREVIOUS")
-			if root == "" {
-				return nil, cfgerr.New("CAUTHY_KEY is required with a contract: make it on the application's card in Cauthy's dashboard (or, until 2.0, RootKey: PACT_ROOT_KEY)")
-			}
-			if c.ServiceClientID != "" && o.Keys == nil {
-				return nil, cfgerr.New("the link %s gives %s its own identity: pass Keys, where its key is kept (keys.Postgres(db)), or move to CAUTHY_KEY, which needs none", c.Link, c.System)
-			}
-		}
-		a.issuer, a.clientID, a.system, a.tenant = withoutTrailingSlashes(o.Issuer), c.ClientID, c.System, c.Tenant
-		if a.issuer == "" {
-			a.issuer = c.Issuer
-		}
-	} else if a.keyed == nil {
+	} else {
 		deprecated(a.log, "Variables mode (the CAUTHY_* variables)", "Connect the application in Cauthy's dashboard and use the one variable CAUTHY_KEY.")
 		a.issuer = withoutTrailingSlashes(or(o.Issuer, "CAUTHY_ISSUER"))
 		a.clientID = or(o.ClientID, "CAUTHY_CLIENT_ID")
@@ -260,23 +193,14 @@ func New(o Options) (*Auth, error) {
 	if a.clientID == "" {
 		return nil, cfgerr.New("clientId (CAUTHY_CLIENT_ID) is required")
 	}
-	if a.keyed == nil && o.Contract != nil {
-		rings, err := keys.Derive(root, previous)
-		if err != nil {
-			return nil, err
-		}
-		a.cookieRing, a.flowRing = rings.Cookie, rings.Flow
-		if o.Keys != nil {
-			a.ownKeys = keys.New(o.Keys, rings.Seal, a.now)
-		}
-	} else if a.keyed != nil {
+	if a.keyed != nil {
 		// The secret segment is the root of the cookie and flow keys
 		// (key/cauthy-key.md §4); the previous key's are read, never written.
 		prev := ""
 		if a.keyed.previous != nil {
 			prev = a.keyed.previous.Secret
 		}
-		rings, err := keys.Derive(a.keyed.key.Secret, prev)
+		rings, err := keyring.Derive(a.keyed.key.Secret, prev)
 		if err != nil {
 			return nil, err
 		}
@@ -288,32 +212,9 @@ func New(o Options) (*Auth, error) {
 			a.cookieRing, a.flowRing = append(a.cookieRing, sum[:]), append(a.flowRing, sum[:])
 			deprecated(a.log, "CAUTHY_SECRET beside CAUTHY_KEY", "It is read only for sessions made before the move: remove it after the rotation window.")
 		}
-		if root := getenv("PACT_ROOT_KEY"); root != "" {
-			// With PACT_ROOT_KEY_PREVIOUS when a root rotation was still open:
-			// the sessions of both roots are read.
-			old, err := keys.Derive(root, getenv("PACT_ROOT_KEY_PREVIOUS"))
-			if err != nil {
-				return nil, err
-			}
-			a.cookieRing, a.flowRing = append(a.cookieRing, old.Cookie...), append(a.flowRing, old.Flow...)
-			if o.Keys != nil {
-				// Its stored keys stay published beside the key's until removed.
-				a.ownKeys = keys.New(o.Keys, old.Seal, a.now)
-			}
-			deprecated(a.log, "PACT_ROOT_KEY beside CAUTHY_KEY", "It is read only for sessions made before the move: remove it, the key store and its table after the rotation window.")
-		} else if o.Keys != nil {
-			return nil, cfgerr.New("Keys is the key store of PACT_ROOT_KEY, which opens it: on CAUTHY_KEY remove Keys (no key store is needed), or keep PACT_ROOT_KEY beside the key while moving")
-		}
-		// The key proves the key's client; by contract, the link's service
-		// client (none without a service block).
-		proves := a.clientID
-		if a.contract != nil {
-			proves = a.contract.ServiceClientID
-		}
-		if proves != "" {
-			d := a.keyed.key.Derive()
-			a.signer = &system.Signer{ClientID: proves, KID: d.KID, Key: d.Private}
-		}
+		// The key proves the key's client.
+		d := a.keyed.key.Derive()
+		a.signer = &system.Signer{ClientID: a.clientID, KID: d.KID, Key: d.Private}
 	} else {
 		secret := or(o.Secret, "CAUTHY_SECRET")
 		if len(secret) < 32 {
@@ -395,7 +296,7 @@ func New(o Options) (*Auth, error) {
 		Changed: func() { a.forgetOrganizations("") }}
 	if a.signer != nil {
 		so.Signer, so.SystemOf = a.signer, a.systemName
-	} else if o.Contract == nil {
+	} else {
 		so.Key = o.SystemKey
 		if so.Key == nil && getenv("CAUTHY_SYSTEM_KEY") != "" {
 			so.Key = &system.Key{PrivateKey: getenv("CAUTHY_SYSTEM_KEY"), KeyID: getenv("CAUTHY_SYSTEM_KEY_ID")}
@@ -404,30 +305,13 @@ func New(o Options) (*Auth, error) {
 	if a.baseURL != "" && a.pages.AcceptInvite != "" {
 		so.AcceptInviteURL = a.baseURL + a.pages.AcceptInvite
 	}
-	if a.ownKeys != nil && a.keyed == nil {
-		so.Keys, so.KeysClientID = a.ownKeys, a.contract.ServiceClientID
-	}
 	sys, err := system.New(so)
 	if err != nil {
 		return nil, err
 	}
 	a.sys = sys
 
-	if a.ownKeys != nil && a.keyed == nil {
-		// contract/pact.md, rule 10: a store that keeps no key, or a key the
-		// root cannot open, stops the start.
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if _, _, err := a.ownKeys.Current(ctx); err != nil {
-			return nil, err
-		}
-		a.pact = &Pact{auth: a}
-	}
-	if a.keyed != nil && a.contract != nil && a.contract.JWKSPath != "" {
-		a.pact = &Pact{auth: a}
-	}
-
-	if a.keyed != nil && a.contract == nil {
+	if a.keyed != nil {
 		// Who the application is, asked of Cauthy with its own token.
 		a.identity = newIdentitySource(a.issuer, a.sys.Token, a.http, a.now, a.log, a.signer.KID)
 		a.identity.start()

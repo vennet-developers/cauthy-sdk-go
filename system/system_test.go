@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
-	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"io"
@@ -19,7 +18,6 @@ import (
 	"time"
 
 	"github.com/vennet-developers/cauthy-sdk-go/internal/jose"
-	"github.com/vennet-developers/cauthy-sdk-go/keys"
 )
 
 // cauthy is a token endpoint and a few routes, recording what it was sent.
@@ -73,8 +71,6 @@ func newCauthy(t *testing.T) *cauthy {
 			w.WriteHeader(204)
 		case r.URL.Path == "/v1/systems/acme-crm/check":
 			w.Write([]byte(`{"data":{"allowed":true,"reason":"allowed by role owner","rule":{"source":"role","role":"owner","kind":"*","resource":"invoices","action":"approve","effect":"allow"}}}`))
-		case r.URL.Path == "/v1/pact/status":
-			w.Write([]byte(`{"data":{"system":"acme-crm","in_step":true,"outside":[],"missing":[]}}`))
 		default:
 			w.WriteHeader(404)
 			w.Write([]byte(`{"errors":[{"code":"organization_not_found","message":"organization not found"}]}`))
@@ -102,37 +98,6 @@ func TestTokenWithTheSecretIsKeptUntilItRunsOut(t *testing.T) {
 	now = now.Add(10*time.Minute - 29*time.Second)
 	if tok, _ := c.Token(context.Background()); tok != "sys-2" {
 		t.Fatalf("renewed 30 s before the end: %q", tok)
-	}
-}
-
-func TestTokenWithTheApplicationsOwnKeysSignsTheAssertion(t *testing.T) {
-	cy := newCauthy(t)
-	rings, _ := keys.Derive("acme-root-key-for-tests-only-0123456789", "")
-	own := keys.New(keys.Memory(), rings.Seal, nil)
-	c, _ := New(Options{Issuer: cy.URL, Keys: own, KeysClientID: "pact.acme-crm-signs-in-with-cauthy.service"})
-	if _, err := c.Token(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	f := cy.form(0)
-	if f.Get("client_id") != "pact.acme-crm-signs-in-with-cauthy.service" || f.Get("client_assertion_type") != assertionType || f.Get("client_secret") != "" {
-		t.Fatalf("%v", f)
-	}
-	a, err := jose.ParseCompact(f.Get("client_assertion"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	kid, key, _ := own.Current(context.Background())
-	if err := a.VerifyRS256(&key.PublicKey); err != nil || string(a.Header["kid"]) != `"`+kid+`"` || string(a.Header["alg"]) != `"RS256"` {
-		t.Fatalf("signature or header: %v %s", err, a.Header)
-	}
-	var claims struct {
-		Iss, Sub, Aud, Jti string
-		Iat, Exp           int64
-	}
-	json.Unmarshal(a.Payload, &claims)
-	if claims.Iss != "pact.acme-crm-signs-in-with-cauthy.service" || claims.Sub != claims.Iss || claims.Aud != cy.URL+"/v1/oauth/token" ||
-		len(claims.Jti) != 36 || claims.Exp-claims.Iat != 120 {
-		t.Fatalf("%+v", claims)
 	}
 }
 
@@ -167,10 +132,6 @@ func TestRefusalsAndMissingCredentialsAreNamed(t *testing.T) {
 	}
 	none, _ := New(Options{Issuer: cy.URL, ClientID: "acme-crm"})
 	if _, err := none.Token(context.Background()); err == nil || !strings.Contains(err.Error(), "CAUTHY_CLIENT_SECRET") {
-		t.Fatalf("%v", err)
-	}
-	contracted, _ := New(Options{Issuer: cy.URL, Keys: &keys.Keys{}})
-	if _, err := contracted.Token(context.Background()); err == nil || !strings.Contains(err.Error(), "service block") {
 		t.Fatalf("%v", err)
 	}
 }
@@ -226,9 +187,5 @@ func TestOrganizationsMembersCheckAndStatus(t *testing.T) {
 	r, err := c.Check(ctx, CheckQuestion{OrganizationID: "o1", UserID: "u1", Resource: "invoices", Action: "approve", Attributes: map[string]any{"amount": 500}})
 	if err != nil || !r.Allowed || r.Rule == nil || r.Rule.Role != "owner" {
 		t.Fatalf("%+v %v", r, err)
-	}
-	s, err := c.PactStatus(ctx, "acme-crm")
-	if err != nil || !s.InStep || s.System != "acme-crm" {
-		t.Fatalf("%+v %v", s, err)
 	}
 }

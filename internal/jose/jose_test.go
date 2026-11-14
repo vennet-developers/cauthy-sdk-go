@@ -12,17 +12,11 @@ import (
 )
 
 // nodeFixtures was written by @cauthyhq/node's own code (jose 5.10.0): the
-// keys HKDF derives from a test root key, values it sealed with them, and a
-// key it made and sealed as its key store keeps it.
+// keys HKDF derives from a test secret, and values it sealed with them.
 type nodeFixtures struct {
-	Seal, Cookie, Flow, SecretKey string
-	CookieSealed                  string `json:"cookieSealed"`
-	SecretSealed                  string `json:"secretSealed"`
-	StoredKey                     struct {
-		Kid       string         `json:"kid"`
-		PublicJWK map[string]any `json:"publicJwk"`
-		Sealed    string         `json:"sealed"`
-	} `json:"storedKey"`
+	Cookie, Flow, SecretKey string
+	CookieSealed            string `json:"cookieSealed"`
+	SecretSealed            string `json:"secretSealed"`
 }
 
 func fixtures(t *testing.T) nodeFixtures {
@@ -88,7 +82,7 @@ func TestSealRoundTripsAndRefusesAnyOtherKey(t *testing.T) {
 func TestOpensWhatNodeSealed(t *testing.T) {
 	f := fixtures(t)
 	for name, c := range map[string]struct{ sealed, key string }{
-		"cookie (contract mode)":  {f.CookieSealed, f.Cookie},
+		"cookie (derived key)":    {f.CookieSealed, f.Cookie},
 		"cookie (variables mode)": {f.SecretSealed, f.SecretKey},
 	} {
 		plain, err := Open(c.sealed, hexKey(t, c.key))
@@ -103,25 +97,6 @@ func TestOpensWhatNodeSealed(t *testing.T) {
 		if json.Unmarshal(plain, &v) != nil || v.AT != "at-1" || v.Exp != 1767226440 || v.P != 1 {
 			t.Fatalf("%s: %s", name, plain)
 		}
-	}
-}
-
-func TestOpensAKeyNodeMadeAndAgreesOnItsId(t *testing.T) {
-	f := fixtures(t)
-	plain, err := Open(f.StoredKey.Sealed, hexKey(t, f.Seal))
-	if err != nil {
-		t.Fatal(err)
-	}
-	key, err := ParsePrivateJWK(plain)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := Thumbprint(&key.PublicKey); got != f.StoredKey.Kid {
-		t.Fatalf("thumbprint %s, Node says %s", got, f.StoredKey.Kid)
-	}
-	pub, err := ParsePublicJWK(f.StoredKey.PublicJWK)
-	if err != nil || pub.N.Cmp(key.N) != 0 {
-		t.Fatalf("public half: %v", err)
 	}
 }
 

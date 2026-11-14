@@ -1,12 +1,10 @@
 // Package system is the application acting on its own in Cauthy, with no
 // person's token: its own token (the system proof), its organizations, their
-// members, invitations, permission checks, and how it stands against its
-// Pact contract.
+// members, invitations and permission checks.
 //
 // It proves who it is with the client's secret, or with a key it holds,
 // signing a private_key_jwt assertion (RFC 7523): the Ed25519 key derived
-// from CAUTHY_KEY (Options.Signer), a key of its own given as Options.Key,
-// or, by contract, the keys it keeps itself (keys.Keys).
+// from CAUTHY_KEY (Options.Signer), or a key of its own given as Options.Key.
 package system
 
 import (
@@ -32,7 +30,6 @@ import (
 	"github.com/vennet-developers/cauthy-sdk-go/cauthykey"
 	"github.com/vennet-developers/cauthy-sdk-go/internal/cfgerr"
 	"github.com/vennet-developers/cauthy-sdk-go/internal/jose"
-	"github.com/vennet-developers/cauthy-sdk-go/keys"
 )
 
 const (
@@ -85,14 +82,10 @@ type Options struct {
 	Issuer       string
 	ClientID     string
 	ClientSecret string
-	// Signer is the key derived from CAUTHY_KEY. It takes the place of Key,
-	// Keys and ClientSecret.
+	// Signer is the key derived from CAUTHY_KEY. It takes the place of Key
+	// and ClientSecret.
 	Signer *Signer
 	Key    *Key
-	// Keys are the application's own keys (contract mode); KeysClientID is
-	// the client they prove: pact.<link>.service. They take the place of Key.
-	Keys         *keys.Keys
-	KeysClientID string
 	// System is the application's system, which Check asks about.
 	System string
 	// SystemOf, when set, names the system instead of System: an application
@@ -190,14 +183,8 @@ func (c *Client) configured() error {
 	if c.o.Signer != nil {
 		return nil
 	}
-	if c.o.ClientID == "" && c.o.Keys == nil {
+	if c.o.ClientID == "" {
 		return cfgerr.New("clientId (CAUTHY_CLIENT_ID) is required")
-	}
-	if c.o.Keys != nil {
-		if c.o.KeysClientID == "" {
-			return cfgerr.New("the contract gives the system no identity of its own: its link needs a service block")
-		}
-		return nil
 	}
 	if c.o.Key != nil {
 		if c.o.Key.KeyID == "" {
@@ -237,9 +224,6 @@ func (c *Client) self(ctx context.Context) (string, string, *rsa.PrivateKey, err
 	switch {
 	case c.o.Signer != nil:
 		return c.o.Signer.ClientID, c.o.Signer.KID, nil, nil
-	case c.o.Keys != nil:
-		kid, key, err := c.o.Keys.Current(ctx)
-		return c.o.KeysClientID, kid, key, err
 	case c.o.Key != nil:
 		c.keyOnce.Do(func() { c.key, c.keyErr = parseKey(c.o.Key.PrivateKey) })
 		id := c.o.Key.ClientID
@@ -260,7 +244,7 @@ func uuid4() string {
 	return h[:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:]
 }
 
-// Assertion signs the client assertion contract/pact.md describes: RS256
+// Assertion signs a private_key_jwt client assertion (RFC 7523): RS256
 // with kid; iss and sub the client; aud the token endpoint; jti; iat; exp
 // two minutes later.
 func Assertion(key *rsa.PrivateKey, kid, clientID, tokenEndpoint string, now time.Time) (string, error) {

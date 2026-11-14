@@ -10,7 +10,6 @@ import (
 
 	"github.com/vennet-developers/cauthy-sdk-go/internal/cfgerr"
 	"github.com/vennet-developers/cauthy-sdk-go/internal/jose"
-	"github.com/vennet-developers/cauthy-sdk-go/keys"
 )
 
 // Organization is an organization of the application's system. Moments are UTC.
@@ -247,43 +246,24 @@ func (c *Client) Check(ctx context.Context, q CheckQuestion) (CheckResult, error
 	return r, err
 }
 
-// PactStatus is how the system stands against its contract, as Cauthy
-// checks it now (GET /v1/pact/status). Moments are UTC.
-type PactStatus struct {
-	System       string           `json:"system"`
-	TenantID     string           `json:"tenant_id"`
-	CheckedAt    string           `json:"checked_at"`
-	ReconciledAt *string          `json:"reconciled_at"`
-	InStep       bool             `json:"in_step"`
-	Outside      []map[string]any `json:"outside"`
-	Missing      []map[string]any `json:"missing"`
-	Contract     map[string]any   `json:"contract"`
-	Held         map[string]any   `json:"held"`
-}
-
-// PactStatus asks Cauthy how system stands against its contract.
-func (c *Client) PactStatus(ctx context.Context, system string) (*PactStatus, error) {
-	var s PactStatus
-	err := c.Request(ctx, http.MethodGet, "/v1/pact/status?system="+url.QueryEscape(system), nil, &s)
-	return &s, err
+// JWKS is a published key set.
+type JWKS struct {
+	Keys []map[string]any `json:"keys"`
 }
 
 // PublicJWKS is the public half of the key the application proves itself
 // with, to serve at the address Cauthy reads it from. Empty with a secret.
-func (c *Client) PublicJWKS(ctx context.Context) (keys.JWKS, error) {
-	if c.o.Keys != nil {
-		return c.o.Keys.Published(ctx)
-	}
+func (c *Client) PublicJWKS(ctx context.Context) (JWKS, error) {
 	if c.o.Key == nil {
-		return keys.JWKS{Keys: []map[string]any{}}, nil
+		return JWKS{Keys: []map[string]any{}}, nil
 	}
 	_, kid, key, err := c.self(ctx)
 	if err != nil {
-		return keys.JWKS{}, err
+		return JWKS{}, err
 	}
 	jwk := map[string]any{"kty": "RSA", "kid": kid, "alg": "RS256", "use": "sig"}
 	for k, v := range jose.PublicJWK(&key.PublicKey) {
 		jwk[k] = v
 	}
-	return keys.JWKS{Keys: []map[string]any{jwk}}, nil
+	return JWKS{Keys: []map[string]any{jwk}}, nil
 }

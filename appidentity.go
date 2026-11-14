@@ -33,11 +33,6 @@ type AppIdentity struct {
 		Kid       string  `json:"kid"`
 		RetiresAt *string `json:"retires_at"`
 	} `json:"key"`
-	Contract *struct {
-		Link                 string `json:"link"`
-		SystemProof          string `json:"system_proof"`
-		RequireVerifiedEmail bool   `json:"require_verified_email"`
-	} `json:"contract"`
 }
 
 // ErrUnavailable is Cauthy not having answered who the application is yet:

@@ -18,12 +18,11 @@ import (
 
 const identityKey = "cauthy.identity"
 
-// Mount serves auth at its base path and its JWKS path.
+// Mount serves auth at its base path.
 func Mount(app *fiber.App, auth *cauthy.Auth) {
 	h := adaptor.HTTPHandler(auth)
 	app.All(auth.BasePath(), h)
 	app.All(auth.BasePath()+"/*", h)
-	app.Get(auth.JWKSPath(), h)
 }
 
 // Require lets a request with a valid Cauthy token through, its Identity in

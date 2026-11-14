@@ -9,8 +9,6 @@ import (
 	"time"
 
 	"github.com/vennet-developers/cauthy-sdk-go/cauthytest"
-	//lint:ignore SA1019 contract mode keeps working through 1.x; it leaves in 2.0
-	"github.com/vennet-developers/cauthy-sdk-go/contract"
 	"github.com/vennet-developers/cauthy-sdk-go/internal/jose"
 )
 
@@ -23,27 +21,6 @@ func TestVerifierConfigFromEnv(t *testing.T) {
 	delete(env, "CAUTHY_AUDIENCE")
 	if _, err := VerifierConfigFromEnv(func(k string) string { return env[k] }); err == nil || !strings.Contains(err.Error(), "CAUTHY_AUDIENCE") {
 		t.Fatalf("%v", err)
-	}
-}
-
-func TestVerifierConfigFromContract(t *testing.T) {
-	c := &contract.Resolved{Link: "acme-crm-signs-in-with-cauthy", Issuer: "https://id.example.com", TenantID: goodConfig.Tenant, Audience: "cauthy", TokenAlgorithm: "RS256",
-		ClientID: "pact.acme-crm-signs-in-with-cauthy"}
-	cfg, err := VerifierConfigFromContract(c)
-	// The link's sign-in client: a person's token issued through another is refused (R15).
-	if err != nil || cfg.Issuer != c.Issuer || cfg.Tenant != c.TenantID || cfg.Audience != "cauthy" || cfg.ClientID != c.ClientID {
-		t.Fatalf("%+v %v", cfg, err)
-	}
-	if _, err := NewVerifier(cfg); err != nil {
-		t.Fatal(err)
-	}
-	c.TokenAlgorithm = "HS256"
-	if _, err := VerifierConfigFromContract(c); err == nil {
-		t.Fatal("HS256: want an error")
-	}
-	c.TokenAlgorithm, c.Audience = "", ""
-	if _, err := VerifierConfigFromContract(c); err == nil {
-		t.Fatal("no audience: want an error")
 	}
 }
 

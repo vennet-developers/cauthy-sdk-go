@@ -1,8 +1,10 @@
 package cauthy
 
 import (
+	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -116,7 +118,7 @@ func TestCheckAsksForTheSignedInPerson(t *testing.T) {
 	}
 }
 
-func TestMountServesBothPaths(t *testing.T) {
+func TestMountServesTheBasePathOnly(t *testing.T) {
 	a := newAuth(t, cauthytest.New(), nil)
 	mux := http.NewServeMux()
 	a.Mount(mux)
@@ -124,8 +126,9 @@ func TestMountServesBothPaths(t *testing.T) {
 	if res := b.Send(mux, "GET", "/api/auth/session", nil); res.StatusCode != 200 {
 		t.Fatalf("%d", res.StatusCode)
 	}
-	if res := b.Send(mux, "GET", DefaultJWKSPath, nil); res.StatusCode != 404 || res.Header.Get("Cauthy-Protocol") != "1" {
-		t.Fatalf("no keys published: Auth answers 404 there: %d", res.StatusCode)
+	// Auth publishes no keys: nothing is mounted at the old JWKS path.
+	if res := b.Send(mux, "GET", DefaultJWKSPath, nil); res.StatusCode != 404 || res.Header.Get("Cauthy-Protocol") != "" {
+		t.Fatalf("%d %v", res.StatusCode, res.Header)
 	}
 }
 
@@ -141,4 +144,71 @@ func TestTheCallbackCutsAReflectedErrorOnACharacter(t *testing.T) {
 	if res.StatusCode != 400 || !utf8.Valid(body) || !strings.Contains(string(body), "("+strings.Repeat("a", 59)+")") {
 		t.Fatalf("%d %q", res.StatusCode, body)
 	}
+}
+
+// Ported from @cauthyhq/node's verified-email.test.ts: Cauthy refuses at the
+// token endpoint (400 email_not_confirmed) when the client requires a
+// confirmed address, and the callback says so and clears the sign-in.
+func TestTheCallbackHearsCauthyRefuseAnUnconfirmedAddress(t *testing.T) {
+	f := cauthytest.New()
+	f.On("POST /v1/oauth/token", func(c cauthytest.Call) cauthytest.Reply {
+		if c.Form.Get("grant_type") == "authorization_code" {
+			return cauthytest.Reply{Status: 400, Body: map[string]any{"error": "email_not_confirmed", "error_description": "the person has not confirmed their email address"}}
+		}
+		return cauthytest.Reply{Status: 400, Body: map[string]any{"error": "invalid_grant"}}
+	})
+	a := newAuth(t, f, nil)
+	b := cauthytest.NewBrowser("")
+	res := b.Send(a, "GET", "/api/auth/login?return_to=/x", nil)
+	back, _ := f.Authorize(res.Header.Get("Location"), "u-member")
+	u, _ := url.Parse(back)
+	res = b.Send(a, "GET", u.RequestURI(), nil)
+	cleared := map[string]bool{}
+	for _, c := range res.Header.Values("Set-Cookie") {
+		if strings.Contains(c, "Max-Age=0") {
+			cleared[strings.SplitN(c, "=", 2)[0]] = true
+		}
+	}
+	if res.StatusCode != 302 || res.Header.Get("Location") != "/?auth_error=email_not_confirmed" || !cleared["cauthy_session_flow"] || !cleared["cauthy_session_again"] ||
+		b.Jar["cauthy_session.0"] != "" || res.Header.Get("Cauthy-Protocol") != "1" {
+		t.Fatalf("%d %v", res.StatusCode, res.Header)
+	}
+}
+
+// A browser that goes away must not cost the next 30 seconds of sign-ins
+// their system proof: the proof is asked for detached from the request (its
+// own deadline still applies), and a cancelled request never starts the
+// backoff.
+func TestACancelledRequestStillCarriesTheProofAndStartsNoBackoff(t *testing.T) {
+	f := cauthytest.New()
+	f.On("POST /v1/oauth/token", func(c cauthytest.Call) cauthytest.Reply {
+		if c.Form.Get("grant_type") != "client_credentials" || c.Form.Get("client_secret") == "" {
+			return cauthytest.Reply{Status: 400, Body: map[string]any{"error": "invalid_request"}}
+		}
+		return cauthytest.Reply{Status: 200, Body: map[string]any{"access_token": "sys-token", "token_type": "Bearer", "expires_in": 600}}
+	})
+	// A transport that gives up on a cancelled context, as net/http's does.
+	client := &http.Client{Transport: cancellable{f.Client().Transport}}
+	a := newAuth(t, f, func(o *Options) { o.ClientSecret, o.HTTPClient = "acme-crm-secret", client })
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	r := httptest.NewRequest("POST", "https://app.test/api/auth/sign-in/email", nil).WithContext(ctx)
+	h := a.passedOn(r)
+	a.cacheMu.Lock()
+	backoff := a.noProofTill
+	a.cacheMu.Unlock()
+	if h.Get("X-Cauthy-System-Token") == "" || !backoff.IsZero() {
+		t.Fatalf("proof %v, backoff until %v", h, backoff)
+	}
+}
+
+// cancellable refuses a request whose context has ended, as a real
+// transport does; the in-memory one answers regardless.
+type cancellable struct{ next http.RoundTripper }
+
+func (c cancellable) RoundTrip(r *http.Request) (*http.Response, error) {
+	if err := r.Context().Err(); err != nil {
+		return nil, err
+	}
+	return c.next.RoundTrip(r)
 }

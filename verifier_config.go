@@ -40,7 +40,7 @@ type VerifierConfig struct {
 	// ClientID is the client this backend signs people in through. When
 	// set, a person's token issued through another client (an azp naming
 	// another) is refused with wrong_client (rule R15); a token with no azp
-	// passes. VerifierConfigFromContract sets the link's sign-in client.
+	// passes.
 	// Empty by default: azp is not checked.
 	ClientID string
 	// Leeway is the clock tolerance: nil is DefaultLeeway, a pointer to zero

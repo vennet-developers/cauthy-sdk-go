@@ -2,11 +2,11 @@
 # checkout (default ../cauthy-sdk-spec) at the commit in internal/spec/testdata/SPEC_COMMIT
 # (CAUTHY_KEY, ahead of a tag; CI's pin moves to the next conformance tag).
 SPEC_DIR ?= ../cauthy-sdk-spec
-MODULES := . ./examples/acme-crm ./gin ./echo ./fiber ./internal/pgtest
+MODULES := . ./examples/acme-crm ./gin ./echo ./fiber
 STATICCHECK := honnef.co/go/tools/cmd/staticcheck@v0.8.2
 GOVULNCHECK := golang.org/x/vuln/cmd/govulncheck@v1.9.0
 
-.PHONY: all fmt vet lint vulncheck test vectors spec key-reference conformance tidy pgtest
+.PHONY: all fmt vet lint vulncheck test vectors spec key-reference conformance tidy
 
 all: fmt vet lint vulncheck test vectors key-reference conformance
 
@@ -23,7 +23,6 @@ lint:
 vulncheck:
 	@for m in $(MODULES); do (cd $$m && go run $(GOVULNCHECK) -scan module) || exit 1; done
 
-# internal/pgtest skips without CAUTHY_TEST_POSTGRES_DSN (see pgtest).
 test:
 	@for m in $(MODULES); do (cd $$m && go test -race -count=1 ./...) || exit 1; done
 
@@ -45,8 +44,3 @@ conformance:
 
 tidy:
 	@for m in $(MODULES); do (cd $$m && go mod tidy) || exit 1; done
-
-# The Postgres key store on a real Postgres; skipped without
-# CAUTHY_TEST_POSTGRES_DSN (CI's postgres job sets it).
-pgtest:
-	cd internal/pgtest && go vet ./... && go test -race -count=1 ./...

@@ -36,11 +36,11 @@ const (
 	ReasonSecret   = "key_secret"
 )
 
-// The HKDF labels (§4).
+// The HKDF labels (§4). The pact/ prefix is historical: the labels stay as
+// they are so sealed cookies and flows keep opening.
 const (
 	LabelCookie = "pact/cookie/v1"
 	LabelFlow   = "pact/flow/v1"
-	LabelSeal   = "pact/seal/v1"
 	LabelSign   = "cauthy/sign/v1"
 )
 
@@ -236,7 +236,7 @@ func slicesHasEmpty(parts []string) bool {
 
 // Derived is everything a key stands for.
 type Derived struct {
-	Labels  map[string][]byte // LabelCookie, LabelFlow, LabelSeal, LabelSign -> 32 bytes
+	Labels  map[string][]byte // LabelCookie, LabelFlow, LabelSign -> 32 bytes
 	Private ed25519.PrivateKey
 	Public  ed25519.PublicKey
 	X       string // the public key, b64u
@@ -246,7 +246,7 @@ type Derived struct {
 // Derive computes §4 and §5.
 func (k *Key) Derive() *Derived {
 	d := &Derived{Labels: map[string][]byte{}}
-	for _, l := range []string{LabelCookie, LabelFlow, LabelSeal, LabelSign} {
+	for _, l := range []string{LabelCookie, LabelFlow, LabelSign} {
 		b, err := hkdf.Key(sha256.New, []byte(k.Secret), nil, l, 32)
 		if err != nil {
 			panic(err) // 32 bytes is always within HKDF-SHA-256's reach

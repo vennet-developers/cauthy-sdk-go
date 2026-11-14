@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/vennet-developers/cauthy-sdk-go/cauthykey"
-	"github.com/vennet-developers/cauthy-sdk-go/keys"
+	"github.com/vennet-developers/cauthy-sdk-go/internal/keyring"
 )
 
 // pinned is the sha256 of the vendored vectors (scripts/sync-spec.sh copies
@@ -114,14 +114,13 @@ func TestDeriveAndAssertionVectors(t *testing.T) {
 			if got := d.Assertion(c.ClientID, c.Assertion.TokenEndpoint, c.Assertion.Jti, time.Unix(c.Assertion.Iat, 0)); got != c.Assertion.JWS {
 				t.Fatalf("assertion differs:\n%s\n%s", got, c.Assertion.JWS)
 			}
-			// The rings are the root-key derivation with the secret segment as the root.
-			rings, err := keys.Derive(k.Secret, "")
+			// The rings are derived with the secret segment as the root.
+			rings, err := keyring.Derive(k.Secret, "")
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !bytes.Equal(rings.Cookie[0], d.Labels[cauthykey.LabelCookie]) || !bytes.Equal(rings.Flow[0], d.Labels[cauthykey.LabelFlow]) ||
-				!bytes.Equal(rings.Seal[0], d.Labels[cauthykey.LabelSeal]) {
-				t.Fatal("keys.Derive and the key's derivation disagree")
+			if !bytes.Equal(rings.Cookie[0], d.Labels[cauthykey.LabelCookie]) || !bytes.Equal(rings.Flow[0], d.Labels[cauthykey.LabelFlow]) {
+				t.Fatal("keyring.Derive and the key's derivation disagree")
 			}
 		})
 	}

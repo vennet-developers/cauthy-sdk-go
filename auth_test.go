@@ -38,7 +38,7 @@ func TestNewReadsTheVariables(t *testing.T) {
 		t.Fatal(err)
 	}
 	if a.Issuer() != "https://id.example.com" || a.ClientID() != "acme-crm" || a.tenant != "acme" || a.BasePath() != "/auth" ||
-		a.JWKSPath() != DefaultJWKSPath || a.Pact() != nil || a.SignInURL("/x") != "/auth/login?return_to=%2Fx" {
+		a.JWKSPath() != DefaultJWKSPath || a.SignInURL("/x") != "/auth/login?return_to=%2Fx" {
 		t.Fatalf("%+v", a)
 	}
 }

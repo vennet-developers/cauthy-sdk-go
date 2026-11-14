@@ -18,14 +18,10 @@ func SessionFromContext(ctx context.Context) (*Session, bool) {
 // Protect is middleware for a route only a signed-in person may see. A page
 // (a GET navigation that accepts HTML) is sent to sign in, or to renew and
 // come back; anything else gets 401 with X-Cauthy-Session: none | expired,
-// and its caller decides. A session the link does not let in (an address not
-// confirmed) is none.
+// and its caller decides.
 func (a *Auth) Protect(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, value, _ := a.read(r)
-		if value != nil && a.unverified(value.U) {
-			value = nil
-		}
 		if value != nil && a.fresh(value) {
 			next.ServeHTTP(w, r.WithContext(WithSession(r.Context(), value.session())))
 			return

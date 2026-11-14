@@ -1,22 +1,25 @@
 # Changelog
 
-## v1.3.0 — contracts retired
+## v1.3.0 — contracts removed
 
-An application once connected by contract runs on its `CAUTHY_KEY` alone, and its people stay signed in.
+Pact contracts are retired, and contract mode is gone from the SDK. An application runs on its `CAUTHY_KEY` alone, and its people stay signed in.
+
+### Removed
+
+- **Contract mode**: `Options.Contract` and the `Contract` type, the `contract` package (reading the contracts graph), `VerifierConfigFromContract`, `Auth.Pact()` and the `Pact` type (its `Contract`, `Keys`, `JWKS` and `Status`), and `system.Client.PactStatus` / `system.PactStatus`.
+- **The key store and `PACT_ROOT_KEY`**: `Options.Keys`, `Options.RootKey`, `Options.RootKeyPrevious`, and the `keys` package (`Store`, `Memory`, `File`, `Postgres`, `TableSQL`, `Keys`, `Derive`, `JWKS`). `system.Options.Keys` and `KeysClientID` go with it; `system.Client.PublicJWKS` now answers a `system.JWKS`.
+- **Publishing a JWKS**: `Auth` no longer serves keys, and `Mount`, `MountRouter` and the `gin`, `echo` and `fiber` adapters mount the base path only. `JWKSPath()` and `DefaultJWKSPath` stay, deprecated, so the adapters released before 1.3.0 still compile; `Auth` answers 404 there.
+- `AppIdentity.Contract`.
+- The SDK's own check of a link's `require_verified_email`. Cauthy enforces it: its `email_not_confirmed` refusal at the token endpoint is still answered as before.
 
 ### Changed
 
-- **On `CAUTHY_KEY`, people sign in through the client Cauthy names** (`sign_in_client_id` of `GET /v1/connect/self`). An application connected by contract has its key on the link's service client (`pact.<link>.service`) and its people, and their refresh tokens, on the link's sign-in client (`pact.<link>`): the authorize redirect, the code exchange, renewals, revocation, sign-out, the account page, the look and the hosted-page and invitation calls now go as that client. It is a public client: the key's assertion is sent for the key's own client only, and the code exchange carries the system's proof (`X-Cauthy-System-Token`), as contract mode sends it. A renewal waits for Cauthy's answer first, so a refresh token is never spent on the wrong client. When the two clients are the same, nothing changes.
-- **The same key keeps every session**: a session signed in by contract on `CAUTHY_KEY` is read and renewed on the same key with `Options.Contract` removed.
+- **`PACT_ROOT_KEY` or `PACT_ROOT_KEY_PREVIOUS` in the environment stops the start** with a `*ConfigError`: "contracts are retired: run on CAUTHY_KEY alone". Sessions sealed with the root key are no longer read; `CAUTHY_SECRET` beside `CAUTHY_KEY` still is.
+- **On `CAUTHY_KEY`, people sign in through the client Cauthy names** (`sign_in_client_id` of `GET /v1/connect/self`). When it is not the key's own, the people, and their refresh tokens, are on that client: the authorize redirect, the code exchange, renewals, revocation, sign-out, the account page, the look and the hosted-page and invitation calls go as that client. It is a public client: the key's assertion is sent for the key's own client only, and the code exchange carries the system's proof (`X-Cauthy-System-Token`). A renewal waits for Cauthy's answer first, so a refresh token is never spent on the wrong client. When the two clients are the same, nothing changes.
 - `Auth.ClientID()` is the client people sign in with: on `CAUTHY_KEY`, Cauthy's `sign_in_client_id` once it has answered.
 - `VerifierConfigFromKey` names no client, so a person's token issued through the sign-in client is accepted when the key is another client's (now covered by a test).
 - `cauthytest`: `Fake.SignInClients` (the key's client → the sign-in client `/v1/connect/self` names). The fake now binds a code to the client that asked for it and a refresh token to the client it was issued to, as Cauthy does.
-- The `acme-api` example verifies with `VerifierConfigFromKey`.
-
-### Deprecated (removed in 2.0)
-
-- `Options.Contract` (and the `Contract` type): one warning per process (`slog`, `Warn`, `deprecated=true`). Remove it and keep `CAUTHY_KEY`; protect sign-in with the "Protect sign-in" switches on the application's card in Cauthy's dashboard.
-- The `contract` package and `VerifierConfigFromContract`: use `VerifierConfigFromKey`.
+- The `acme-api` example verifies with `VerifierConfigFromKey`; the `acme-crm` example runs on `CAUTHY_KEY` only.
 
 ## v1.2.1 — sessions kept when moving to CAUTHY_KEY
 

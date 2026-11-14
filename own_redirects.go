@@ -84,10 +84,7 @@ func (a *Auth) ssoCallback(r *http.Request, _ string) *reply {
 
 // signedInBack keeps the session Cauthy's answer starts and goes back.
 func (a *Auth) signedInBack(r *http.Request, data any, was *stored, back string, cookies ...string) *reply {
-	st, err := a.toStored(r.Context(), data, was)
-	if rep := orUnverified(err); rep != nil {
-		return rep
-	}
+	st := a.toStored(r.Context(), data, was)
 	if st == nil {
 		return failedTo(back, "unavailable", cookies...)
 	}

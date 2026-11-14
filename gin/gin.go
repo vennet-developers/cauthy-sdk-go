@@ -12,13 +12,11 @@ import (
 
 const identityKey = "cauthy.identity"
 
-// Mount serves auth at its base path and its JWKS path.
+// Mount serves auth at its base path.
 func Mount(r gin.IRoutes, auth *cauthy.Auth) {
 	h := gin.WrapH(auth)
 	r.Any(auth.BasePath(), h)
 	r.Any(auth.BasePath()+"/*path", h)
-	r.GET(auth.JWKSPath(), h)
-	r.HEAD(auth.JWKSPath(), h)
 }
 
 // Require lets a request with a valid Cauthy token through, its Identity in

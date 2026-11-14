@@ -57,8 +57,7 @@ func byKey(o Options, getenv func(string) string) (*keyed, error) {
 		name string
 		set  bool
 	}{{"Issuer", o.Issuer != ""}, {"ClientID", o.ClientID != ""}, {"ClientSecret", o.ClientSecret != ""}, {"Secret", o.Secret != ""},
-		{"System", o.System != ""}, {"Tenant", o.Tenant != ""}, {"SystemKey", o.SystemKey != nil}, {"RootKey", o.RootKey != ""},
-		{"RootKeyPrevious", o.RootKeyPrevious != ""}} {
+		{"System", o.System != ""}, {"Tenant", o.Tenant != ""}, {"SystemKey", o.SystemKey != nil}} {
 		if opt.set {
 			return nil, cfgerr.New("with CAUTHY_KEY, %s comes from CAUTHY_KEY: do not pass it", opt.name)
 		}
@@ -121,9 +120,6 @@ func (a *Auth) Identity(ctx context.Context) (*AppIdentity, error) {
 		id := &AppIdentity{Issuer: a.issuer, ClientID: a.clientID, SignInClientID: a.clientID, System: a.systemName(),
 			CallbackPath: a.basePath + "/callback", AppURLs: []string{}}
 		id.Tenant.Slug = a.tenantSlug()
-		if a.contract != nil {
-			id.Tenant.ID = a.contract.TenantID
-		}
 		if a.baseURL != "" {
 			id.AppURLs = []string{a.baseURL}
 		}
@@ -138,10 +134,9 @@ func (a *Auth) Identity(ctx context.Context) (*AppIdentity, error) {
 }
 
 // signInClient is the client people sign in with. On CAUTHY_KEY it is
-// Cauthy's to say (sign_in_client_id): an application once connected by
-// contract has its key on the link's service client (pact.<link>.service),
-// and its people, and their refresh tokens, on the link's sign-in client
-// (pact.<link>). Otherwise, and before Cauthy has answered, the key's.
+// Cauthy's to say (sign_in_client_id): it may name a client other than the
+// key's own, which then holds the application's people and their refresh
+// tokens. Otherwise, and before Cauthy has answered, the key's.
 func (a *Auth) signInClient() string {
 	if a.identity != nil {
 		if id := a.identity.Current(); id != nil && id.SignInClientID != "" {

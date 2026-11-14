@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -158,10 +157,6 @@ const (
 	maxAnswer         = 1 << 20
 )
 
-// errEmailNotConfirmed: Cauthy signed in a person whose address the link
-// requires confirmed, and it is not.
-var errEmailNotConfirmed = errors.New("cauthy: email_not_confirmed")
-
 // seal seals v with the first key of ring.
 func seal(v any, ring [][]byte) (string, error) {
 	plain, err := json.Marshal(v)
@@ -232,10 +227,9 @@ func (a *Auth) token(ctx context.Context, form url.Values, proof http.Header) (b
 // authenticate says which client a call to the token or revoke endpoint is
 // for, and proves it: on CAUTHY_KEY a fresh assertion signed with the key
 // (never a secret), else the client's secret when it has one. The client is
-// the one people sign in with: when Cauthy names one other than the key's
-// (an application once connected by contract), it is the link's public
-// sign-in client, as contract mode always sent it: no assertion, and the
-// code exchange carries the system's proof.
+// the one people sign in with: when Cauthy names one other than the key's,
+// it is a public client: no assertion, and the code exchange carries the
+// system's proof.
 func (a *Auth) authenticate(ctx context.Context, form url.Values) error {
 	client, err := a.signInClientFor(ctx)
 	if err != nil {
@@ -296,12 +290,6 @@ func (a *Auth) revoke(ctx context.Context, refreshToken string) {
 	a.fetch(ctx, http.MethodPost, a.issuer+"/v1/oauth/revoke", http.Header{"Content-Type": {"application/x-www-form-urlencoded"}}, []byte(form.Encode()))
 }
 
-// unverified: a link that requires a verified address lets nobody in whose
-// address is not, whatever Cauthy issued.
-func (a *Auth) unverified(u SessionUser) bool {
-	return a.contract != nil && a.contract.RequireVerifiedEmail && !u.EmailVerified
-}
-
 // persistent is whether the session stays signed in: as Cauthy says, or as
 // it was when an older Cauthy says nothing.
 func persistent(body any, was *stored) int {
@@ -326,22 +314,17 @@ func lifetime(body any) int64 {
 
 // toStored is what Cauthy's token answer becomes in the cookie; nil when it
 // cannot be used.
-func (a *Auth) toStored(ctx context.Context, body any, was *stored) (*stored, error) {
+func (a *Auth) toStored(ctx context.Context, body any, was *stored) *stored {
 	at1, ok1 := at(body, "access_token").(string)
 	rt, ok2 := at(body, "refresh_token").(string)
 	if !ok1 || !ok2 {
-		return nil, nil
+		return nil
 	}
 	w := a.userinfo(ctx, at1)
 	if w == nil || w.u.ID == "" {
-		return nil, nil
+		return nil
 	}
-	if a.unverified(w.u) {
-		// The session these tokens would have started never begins.
-		a.revoke(ctx, rt)
-		return nil, errEmailNotConfirmed
-	}
-	return &stored{AT: at1, RT: rt, Exp: a.now().Unix() + lifetime(body), U: w.u, TID: w.tid, Roles: w.roles, P: persistent(body, was)}, nil
+	return &stored{AT: at1, RT: rt, Exp: a.now().Unix() + lifetime(body), U: w.u, TID: w.tid, Roles: w.roles, P: persistent(body, was)}
 }
 
 func (s *stored) session() *Session {
@@ -454,10 +437,7 @@ func (a *Auth) renewOnce(ctx context.Context, was *stored) (*stored, renewOutcom
 		}
 		return nil, renewUnreachable
 	}
-	next, err := a.toStored(ctx, body, was)
-	if errors.Is(err, errEmailNotConfirmed) {
-		return nil, renewEnded
-	}
+	next := a.toStored(ctx, body, was)
 	if next != nil {
 		return next, renewed
 	}
@@ -482,17 +462,14 @@ func (a *Auth) Resolve(r *http.Request) Resolved {
 		if present {
 			cookies = a.clearSession(r, had) // a cookie this key did not make
 			warnOnce(a.log, "unopened session cookie", "cauthy: a session cookie arrived that no key of this application opens; it was cleared and the person is signed out. "+
-				"Moving to CAUTHY_KEY, keep the secret that sealed the old sessions (CAUTHY_SECRET, or PACT_ROOT_KEY and PACT_ROOT_KEY_PREVIOUS) beside it for the rotation window; "+
+				"Moving to CAUTHY_KEY, keep the secret that sealed the old sessions (CAUTHY_SECRET) beside it for the rotation window; "+
 				"rotating the key, set CAUTHY_KEY_PREVIOUS.")
 		}
 		return Resolved{Status: StatusUnauthenticated, Cookies: cookies}
 	}
-	if a.unverified(value.U) {
-		return Resolved{Status: StatusUnauthenticated, Cookies: a.clearSession(r, had)}
-	}
 	if a.fresh(value) {
 		// Sealed with a key that only reads (CAUTHY_KEY_PREVIOUS, or the
-		// CAUTHY_SECRET / PACT_ROOT_KEY of before the move): sealed again now
+		// CAUTHY_SECRET of before the move): sealed again now
 		// with the current one, so the session outlives the old secret.
 		var cookies []string
 		if a.stale(had) {
@@ -517,7 +494,7 @@ func (a *Auth) Resolve(r *http.Request) Resolved {
 func (a *Auth) Session(w http.ResponseWriter, r *http.Request) *Session {
 	if w == nil {
 		_, value, _ := a.read(r)
-		if value == nil || !a.fresh(value) || a.unverified(value.U) {
+		if value == nil || !a.fresh(value) {
 			return nil
 		}
 		return value.session()
@@ -533,7 +510,7 @@ func (a *Auth) Session(w http.ResponseWriter, r *http.Request) *Session {
 // be renewed first.
 func (a *Auth) Status(r *http.Request) Status {
 	_, value, _ := a.read(r)
-	if value == nil || a.unverified(value.U) {
+	if value == nil {
 		return StatusUnauthenticated
 	}
 	if a.fresh(value) {

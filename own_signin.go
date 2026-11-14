@@ -21,10 +21,7 @@ func init() {
 // signedIn: Cauthy answered with tokens, so the person is signed in here.
 // extra cookies go along; more fields join the answer.
 func (a *Auth) signedIn(r *http.Request, tokens any, extra []string, more map[string]any, was *stored) *reply {
-	s, err := a.toStored(r.Context(), tokens, was)
-	if rep := orUnverified(err); rep != nil {
-		return rep
-	}
+	s := a.toStored(r.Context(), tokens, was)
 	if s == nil {
 		return problem(http.StatusBadGateway, "unavailable", "Sign-in is unavailable right now. Try again in a moment.", "", nil, nil)
 	}

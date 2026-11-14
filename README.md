@@ -1,7 +1,7 @@
 # cauthy-sdk-go
 
 Cauthy for Go backends: verify Cauthy's access tokens, serve the auth-bff
-protocol (version 1, level strict) and act as a system under a Pact contract.
+protocol (version 1, level strict) and act as a system in Cauthy.
 The core module has no dependency outside the standard library.
 
 ```
@@ -57,15 +57,17 @@ addresses, revalidated every five minutes. Cauthy keeps only the public half.
   old one. Rotating: move the current value to `CAUTHY_KEY_PREVIOUS`, put the
   new one in `CAUTHY_KEY`, deploy, remove `CAUTHY_KEY_PREVIOUS` after the
   window. Sessions of the previous key are read, never written.
-- Moving from 1.1: keep `CAUTHY_SECRET` or `PACT_ROOT_KEY` (and
-  `PACT_ROOT_KEY_PREVIOUS`, if a root rotation is open) beside the key for the
-  window; their sessions are read and sealed again with the key the first time
-  they are read (one deprecation warning each). A session nobody used during
-  the window is lost with the old secret.
+- Moving from 1.1: keep `CAUTHY_SECRET` beside the key for the window; its
+  sessions are read and sealed again with the key the first time they are read
+  (one deprecation warning). A session nobody used during the window is lost
+  with the old secret.
+- Contracts are retired: `PACT_ROOT_KEY` or `PACT_ROOT_KEY_PREVIOUS` in the
+  environment stops the start (`contracts are retired: run on CAUTHY_KEY
+  alone`). Remove them, and the key store and its table.
 
-The variables of 1.1 (`CAUTHY_ISSUER`, `CAUTHY_CLIENT_ID`, …) and
-`PACT_ROOT_KEY` still work in 1.x with a deprecation warning (`slog`, `Warn`,
-`deprecated=true`, once per process) and leave in 2.0.
+The variables of 1.1 (`CAUTHY_ISSUER`, `CAUTHY_CLIENT_ID`, …) still work in 1.x
+with a deprecation warning (`slog`, `Warn`, `deprecated=true`, once per process)
+and leave in 2.0.
 
 ## An API behind another backend: verify tokens
 
@@ -86,12 +88,9 @@ r.With(verifier.Require).Get("/api/records", func(w http.ResponseWriter, r *http
 ```
 
 `VerifierConfigFromKey` names no client: a person's token is accepted whichever of
-the workspace's clients issued it, including the sign-in client Cauthy names for an
-application once connected by contract (`pact.<link>`, while its key is
-`pact.<link>.service`). `VerifierConfig.ClientID` refuses a token issued through
+the workspace's clients issued it, including a sign-in client Cauthy names other
+than the key's own. `VerifierConfig.ClientID` refuses a token issued through
 another client (`wrong_client`; a token with no `azp` passes).
-`VerifierConfigFromContract` and the `contract` package still work and are
-deprecated: contracts are retired.
 A system's own token (`sys`), a client's own token (`token_use`, from a
 `client_credentials` grant: reason `client_token`) and a guest's token are refused
 where a person is expected. An endpoint that machines call sets
@@ -107,49 +106,27 @@ still works and is deprecated.
 ## The whole backend: serve the auth-bff protocol
 
 On `CAUTHY_KEY`, people sign in through the client Cauthy names
-(`sign_in_client_id` of `GET /v1/connect/self`). It is the key's own, except for an
-application once connected by contract: its key is the link's service client
-(`pact.<link>.service`) and its people, and their refresh tokens, are on the link's
-sign-in client (`pact.<link>`). The authorize redirect, code exchange, renewals,
-revocation and the hosted-page calls go as that client, a public one: no assertion,
-and the code exchange carries the system's proof, as contract mode sends it.
-
-### Contract mode (deprecated)
-
-Contracts are retired. Remove `Options.Contract` and run on `CAUTHY_KEY` alone: the
-same key keeps every session, and people keep signing in through `pact.<link>`.
-Protect sign-in with the **Protect sign-in** switches on the application's card in
-Cauthy's dashboard. The option keeps working through 1.x and logs one warning per
-process. By contract, on the same `CAUTHY_KEY` and no key store:
+(`sign_in_client_id` of `GET /v1/connect/self`). It is usually the key's own; when
+Cauthy names another, the people, and their refresh tokens, are on that client. The
+authorize redirect, code exchange, renewals, revocation and the hosted-page calls
+then go as that client, a public one: no assertion, and the code exchange carries
+the system's proof (`X-Cauthy-System-Token`).
 
 ```go
-graph, err := os.ReadFile("contracts/graph.json")
+auth, err := cauthy.New(cauthy.Options{}) // reads CAUTHY_KEY
 if err != nil {
 	log.Fatal(err)
 }
-auth, err := cauthy.New(cauthy.Options{
-	Contract: &cauthy.Contract{Graph: graph, System: "acme-crm"},
-})
-if err != nil {
-	log.Fatal(err) // refuses to start on anything contract/pact.md lists
-}
-mux.Handle("/api/auth/", auth)
-mux.Handle(auth.JWKSPath(), auth)
+auth.Mount(mux)
 if err := auth.CheckMount(mux); err != nil {
 	log.Fatal(err) // something else answers under /api/auth
 }
 ```
 
-The only secret is `CAUTHY_KEY`. The key's issuer must be the graph's Cauthy
-(`key_contract_issuer`); the key proves the link's service client, and its public
-half is published at the contract's `jwks_url` (`{"kty":"OKP","crv":"Ed25519",…,"alg":"EdDSA"}`,
-`max-age=300`; the previous key's too while rotating). The legacy contract mode,
-`PACT_ROOT_KEY` with `Keys: keys.Postgres(db)`, still works until 2.0.
-
 | Router | Mounting |
 | --- | --- |
-| `net/http` | `mux.Handle("/api/auth/", auth)` and `mux.Handle(auth.JWKSPath(), auth)`, or `auth.Mount(mux)` |
-| chi | `r.Handle("/api/auth/*", auth)` and `r.Handle(auth.JWKSPath(), auth)`, or `auth.MountRouter(r)` |
+| `net/http` | `mux.Handle("/api/auth/", auth)`, or `auth.Mount(mux)` |
+| chi | `r.Handle("/api/auth/*", auth)`, or `auth.MountRouter(r)` |
 | Gin | `cauthygin.Mount(r, auth)` — `go get github.com/vennet-developers/cauthy-sdk-go/gin` |
 | Echo v5 | `cauthyecho.Mount(e, auth)` — `go get github.com/vennet-developers/cauthy-sdk-go/echo` |
 | Fiber | `cauthyfiber.Mount(app, auth)` — `go get github.com/vennet-developers/cauthy-sdk-go/fiber` |
@@ -162,8 +139,6 @@ stream arrives at its end, and the page polls `/sign-in/mfa/push/finish`.
 
 A page only a signed-in person sees: `auth.Protect(handler)`, then
 `cauthy.SessionFromContext(r.Context())`. Webhooks: `event, err := auth.Webhook(r)`.
-Legacy key store: `auth.Pact().Keys().Rotate(ctx)`, and after a root rotation (with
-`PACT_ROOT_KEY_PREVIOUS` set) `auth.Pact().Keys().Reseal(ctx)`.
 
 ## What a session cookie is
 
@@ -180,12 +155,8 @@ a Node and a Go backend without signing anybody out:
 Sealed is a compact JWE, `alg: dir`, `enc: A256GCM`, protected header exactly
 `{"alg":"dir","enc":"A256GCM"}`. On `CAUTHY_KEY` the key is HKDF-SHA-256 of the
 key's secret segment (as text) with an empty salt and the label `pact/cookie/v1`
-(session) or `pact/flow/v1` (flow and step); with `PACT_ROOT_KEY`, the same of the
-root key; in variables mode, SHA-256 of `CAUTHY_SECRET`. The private
-key in the key store is the same envelope of its private JWK under `pact/seal/v1`,
-and its id is the RFC 7638 thumbprint, so Node and Go share one key table. The
-published key set holds at most two keys: the newest, and the one before it
-for 24 hours.
+(session) or `pact/flow/v1` (flow and step); in variables mode, SHA-256 of
+`CAUTHY_SECRET`.
 
 ## Testing your application
 

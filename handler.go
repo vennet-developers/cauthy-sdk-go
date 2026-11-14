@@ -2,26 +2,18 @@ package cauthy
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
 
-	"github.com/vennet-developers/cauthy-sdk-go/cauthykey"
-	"github.com/vennet-developers/cauthy-sdk-go/keys"
 	"github.com/vennet-developers/cauthy-sdk-go/system"
 )
 
-// ServeHTTP serves the auth-bff routes under the base path and the published
-// keys at the JWKS path. Every answer goes out as protocol version 1 sends it.
+// ServeHTTP serves the auth-bff routes under the base path. Every answer
+// goes out as protocol version 1 sends it.
 func (a *Auth) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	route, inside := a.routeOf(r)
-	get := r.Method == http.MethodGet || r.Method == http.MethodHead
-	if a.pact != nil && r.URL.Path == a.contract.JWKSPath && get {
-		send(w, "", a.jwksReply(r), true)
-		return
-	}
 	if inside && a.identity != nil {
 		if rep := a.identified(r); rep != nil {
 			send(w, route, rep, false)
@@ -50,7 +42,7 @@ func (a *Auth) serve(r *http.Request, route string) *reply {
 		return notFound()
 	}
 	if rep := a.ownRoute(r, route); rep != nil {
-		return a.unverifiedOr(r, rep)
+		return rep
 	}
 	// The browser asking about a permission: outside the own screens, it
 	// needs no tenant, only the person's session.
@@ -62,7 +54,7 @@ func (a *Auth) serve(r *http.Request, route string) *reply {
 	case route == "/login" && get:
 		return a.login(r)
 	case route == "/callback" && get:
-		return a.unverifiedOr(r, a.callback(r))
+		return a.callback(r)
 	case route == "/logout" && (get || r.Method == http.MethodPost):
 		return a.logout(r)
 	case route == "/session" && get:
@@ -94,58 +86,6 @@ func (a *Auth) serve(r *http.Request, route string) *reply {
 		return redirect(a.issuer + "/v1/oauth/account?" + q.Encode())
 	}
 	return notFound()
-}
-
-// jwksReply is the published keys, cacheable for keys.JWKSMaxAge: on
-// CAUTHY_KEY the key's public half (and the previous key's, while
-// rotating), then the key store's while it is still passed.
-func (a *Auth) jwksReply(r *http.Request) *reply {
-	set := keys.JWKS{Keys: []map[string]any{}}
-	if a.keyed != nil {
-		for _, k := range []*cauthykey.Key{a.keyed.key, a.keyed.previous} {
-			if k == nil || (k != a.keyed.key && k.Secret == a.keyed.key.Secret) {
-				continue
-			}
-			d := k.Derive()
-			set.Keys = append(set.Keys, map[string]any{"kty": "OKP", "crv": "Ed25519", "x": d.X, "kid": d.KID, "alg": "EdDSA", "use": "sig"})
-		}
-	}
-	if a.ownKeys != nil {
-		stored, err := a.ownKeys.Published(r.Context())
-		if err != nil {
-			return text(http.StatusServiceUnavailable, "The keys are unavailable right now.")
-		}
-		set.Keys = append(set.Keys, stored.Keys...)
-	}
-	rep := ok(set, nil)
-	rep.header.Set("Cache-Control", fmt.Sprintf("public, max-age=%d", int(keys.JWKSMaxAge.Seconds())))
-	return rep
-}
-
-// emailNotConfirmedReply marks a reply that stands for errEmailNotConfirmed:
-// unverifiedOr turns it into the answer for the request.
-var emailNotConfirmedReply = &reply{}
-
-// unverifiedOr answers a sign-in Cauthy completed for an address the link
-// requires confirmed, and it is not: a plain-text 403 for a page, the JSON
-// error for anything else.
-func (a *Auth) unverifiedOr(r *http.Request, rep *reply) *reply {
-	if rep != emailNotConfirmedReply {
-		return rep
-	}
-	mode := r.Header.Get("Sec-Fetch-Mode")
-	if r.Method == http.MethodGet && (mode == "" || mode == "navigate") {
-		return text(http.StatusForbidden, "Sign-in refused (email_not_confirmed). Confirm your email address first.")
-	}
-	return problem(http.StatusForbidden, "email_not_confirmed", "Confirm your email address first.", "", nil, nil)
-}
-
-// orUnverified is emailNotConfirmedReply for errEmailNotConfirmed, else nil.
-func orUnverified(err error) *reply {
-	if errors.Is(err, errEmailNotConfirmed) {
-		return emailNotConfirmedReply
-	}
-	return nil
 }
 
 var localeRE = regexp.MustCompile(`^[a-zA-Z-]{2,10}$`)
@@ -235,18 +175,14 @@ func (a *Auth) callback(r *http.Request) *reply {
 		return redirect(withQuery(page, "auth_error", "email_not_confirmed"), clearFlow, writeCookie(a.againCookie, "", a.attrs(r).age(0)))
 	}
 	// Cauthy refuses at the token endpoint when the client requires a
-	// confirmed address…
+	// confirmed address.
 	if !okay && refusal == "email_not_confirmed" {
 		return unconfirmed()
 	}
 	if !okay {
 		return a.failedSignIn(r, "exchange_failed")
 	}
-	// …and this side checks too, should an older Cauthy not.
-	s, err := a.toStored(r.Context(), body, nil)
-	if errors.Is(err, errEmailNotConfirmed) {
-		return unconfirmed()
-	}
+	s := a.toStored(r.Context(), body, nil)
 	if s == nil {
 		return a.failedSignIn(r, "exchange_failed")
 	}
@@ -319,13 +255,10 @@ func (a *Auth) checkRoute(r *http.Request) *reply {
 	return ok(out, p.header)
 }
 
-// Mount registers Auth on mux at its base path and its JWKS path.
+// Mount registers Auth on mux at its base path.
 func (a *Auth) Mount(mux *http.ServeMux) {
 	mux.Handle(a.basePath, a)
 	mux.Handle(a.basePath+"/", a)
-	if !strings.HasPrefix(a.JWKSPath(), a.basePath+"/") {
-		mux.Handle(a.JWKSPath(), a)
-	}
 }
 
 // Router is the part of a chi router (or any like it) Auth mounts on.
@@ -333,15 +266,24 @@ type Router interface {
 	Handle(pattern string, h http.Handler)
 }
 
-// MountRouter registers Auth on a chi-style router: the base path, the base
-// path with /*, and the JWKS path.
+// MountRouter registers Auth on a chi-style router: the base path and the
+// base path with /*.
 func (a *Auth) MountRouter(r Router) {
 	r.Handle(a.basePath, a)
 	r.Handle(a.basePath+"/*", a)
-	if !strings.HasPrefix(a.JWKSPath(), a.basePath+"/") {
-		r.Handle(a.JWKSPath(), a)
-	}
 }
+
+// DefaultJWKSPath is what JWKSPath answers.
+//
+// Deprecated: Auth publishes no keys; it answers 404 there. Kept so the
+// adapters released before 1.3.0 still compile; it leaves in 2.0.
+const DefaultJWKSPath = "/.well-known/pact-jwks.json"
+
+// JWKSPath is DefaultJWKSPath, where Auth answers 404.
+//
+// Deprecated: Auth publishes no keys: there is nothing to mount here. Kept
+// so the adapters released before 1.3.0 still compile; it leaves in 2.0.
+func (a *Auth) JWKSPath() string { return DefaultJWKSPath }
 
 // SignInURL is the path that starts a sign-in and comes back to returnTo.
 func (a *Auth) SignInURL(returnTo string) string {

@@ -249,11 +249,3 @@ func ParsePrivateJWK(raw []byte) (*rsa.PrivateKey, error) {
 	key.Precompute()
 	return key, nil
 }
-
-// Thumbprint is the RFC 7638 SHA-256 thumbprint of an RSA public key, as
-// jose's calculateJwkThumbprint writes it: the key's id.
-func Thumbprint(key *rsa.PublicKey) string {
-	j := fmt.Sprintf(`{"e":%q,"kty":"RSA","n":%q}`, Encode(intBytes(key.E)), Encode(key.N.Bytes()))
-	sum := sha256.Sum256([]byte(j))
-	return Encode(sum[:])
-}

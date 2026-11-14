@@ -2,7 +2,8 @@ package cauthy
 
 import (
 	"bytes"
-	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"io"
 	"log/slog"
@@ -12,7 +13,6 @@ import (
 
 	"github.com/vennet-developers/cauthy-sdk-go/cauthykey"
 	"github.com/vennet-developers/cauthy-sdk-go/cauthytest"
-	"github.com/vennet-developers/cauthy-sdk-go/keys"
 )
 
 // counted is a logger whose deprecation warnings are counted, with the
@@ -117,47 +117,6 @@ func TestKeyReadsTheSessionsOfCauthySecretWhileMoving(t *testing.T) {
 	}
 }
 
-func TestKeyReadsTheSessionsOfPactRootKeyWhileMoving(t *testing.T) {
-	f := cauthytest.New()
-	store := keys.Memory()
-	before, err := contractAuth(t, f, store, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	stored := jwksOf(t, before)
-	b := cauthytest.NewBrowser("")
-	signIn(t, before, f, b, "u1")
-
-	f.ClientID = "pact." + acmeLink + ".service"
-	key := f.IssueKey()
-	var c counted
-	after, err := New(Options{Contract: &Contract{Graph: acmeGraph(f, false), System: "acme-crm"}, Keys: store,
-		Getenv: envOf(map[string]string{"CAUTHY_KEY": key, "PACT_ROOT_KEY": testRootKey}), HTTPClient: f.Client(), Logger: c.logger(t)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if sessionUser(after, b) != "u1" {
-		t.Fatal("a session of PACT_ROOT_KEY is not read")
-	}
-	// PACT_ROOT_KEY beside the key, and the Contract option itself.
-	if d := c.deprecations(); len(d) != 2 || saying(d, "PACT_ROOT_KEY beside CAUTHY_KEY") != 1 || saying(d, "The Contract option") != 1 {
-		t.Fatalf("%v", d)
-	}
-	// The stored RS256 key stays published beside the new one; none is made.
-	set := jwksOf(t, after)
-	if len(set) != 2 || set[0]["kty"] != "OKP" || set[1]["kid"] != stored[0]["kid"] {
-		t.Fatalf("%v", set)
-	}
-	if list, _ := store.List(context.Background()); len(list) != 1 {
-		t.Fatal("a key was made in the store")
-	}
-	// The key store without the root key that opens it is refused.
-	if _, err := New(Options{Contract: &Contract{Graph: acmeGraph(f, false), System: "acme-crm"}, Keys: store,
-		Getenv: envOf(map[string]string{"CAUTHY_KEY": key}), HTTPClient: f.Client()}); err == nil || !strings.Contains(err.Error(), "PACT_ROOT_KEY") {
-		t.Fatalf("%v", err)
-	}
-}
-
 func TestTheVariablesModeWarnsOncePerProcess(t *testing.T) {
 	f := cauthytest.New()
 	var c counted
@@ -171,35 +130,8 @@ func TestTheVariablesModeWarnsOncePerProcess(t *testing.T) {
 	}
 }
 
-func TestTheLegacyContractWarnsOnce(t *testing.T) {
-	f := cauthytest.New()
-	var c counted
-	log := c.logger(t)
-	for range 2 {
-		if _, err := New(Options{Contract: &Contract{Graph: acmeGraph(f, false), System: "acme-crm"}, Keys: keys.Memory(), RootKey: testRootKey,
-			HTTPClient: f.Client(), Getenv: noEnv, Logger: log}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if d := c.deprecations(); len(d) != 2 || saying(d, "PACT_ROOT_KEY is deprecated") != 1 || saying(d, "The Contract option") != 1 {
-		t.Fatalf("%v", d)
-	}
-}
-
-// saying is how many of the records say what.
-func saying(records []string, what string) int {
-	n := 0
-	for _, r := range records {
-		if strings.Contains(r, what) {
-			n++
-		}
-	}
-	return n
-}
-
-// moved is the Auth on CAUTHY_KEY with what env adds beside it, by contract
-// when store is not nil (the link's service client holds the key).
-func moved(t *testing.T, f *cauthytest.Fake, key string, store keys.Store, env map[string]string, log *slog.Logger) *Auth {
+// moved is the Auth on CAUTHY_KEY with what env adds beside it.
+func moved(t *testing.T, f *cauthytest.Fake, key string, env map[string]string, log *slog.Logger) *Auth {
 	t.Helper()
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -208,11 +140,7 @@ func moved(t *testing.T, f *cauthytest.Fake, key string, store keys.Store, env m
 	for k, v := range env {
 		all[k] = v
 	}
-	o := Options{Getenv: envOf(all), HTTPClient: f.Client(), Logger: log}
-	if store != nil {
-		o.Contract, o.Keys = &Contract{Graph: acmeGraph(f, false), System: "acme-crm"}, store
-	}
-	a, err := New(o)
+	a, err := New(Options{Getenv: envOf(all), HTTPClient: f.Client(), Logger: log})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,54 +158,6 @@ func sessionCookieSet(a *Auth, b *cauthytest.Browser) bool {
 	return false
 }
 
-func TestKeySealsAgainASessionOfPactRootKeyAndItOutlivesTheRootKey(t *testing.T) {
-	f := cauthytest.New()
-	store := keys.Memory()
-	before, err := contractAuth(t, f, store, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b := cauthytest.NewBrowser("")
-	signIn(t, before, f, b, "u1")
-
-	f.ClientID = "pact." + acmeLink + ".service"
-	key := f.IssueKey()
-	after := moved(t, f, key, store, map[string]string{"PACT_ROOT_KEY": testRootKey}, nil)
-	if !sessionCookieSet(after, b) {
-		t.Fatal("a session of PACT_ROOT_KEY is not sealed again with the key when read")
-	}
-	if sessionCookieSet(after, b) {
-		t.Fatal("a session of the key is sealed again")
-	}
-	// The window ends: PACT_ROOT_KEY and the key store go, the session stays.
-	if sessionUser(moved(t, f, key, nil, nil, nil), b) != "u1" {
-		t.Fatal("the session is lost with PACT_ROOT_KEY")
-	}
-	if sessionUser(before, b) != "" {
-		t.Fatal("the session is still sealed with the root key")
-	}
-}
-
-func TestKeyReadsTheSessionsOfPactRootKeyPreviousWhileMoving(t *testing.T) {
-	const older = "acme-older-root-key-for-tests-only-0123"
-	f := cauthytest.New()
-	store := keys.Memory()
-	before, err := New(Options{Contract: &Contract{Graph: acmeGraph(f, false), System: "acme-crm"}, Keys: store, RootKey: older,
-		HTTPClient: f.Client(), Getenv: noEnv, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
-	if err != nil {
-		t.Fatal(err)
-	}
-	b := cauthytest.NewBrowser("")
-	signIn(t, before, f, b, "u1")
-
-	// The root had been rotated (testRootKey, previous older) when the application moved.
-	f.ClientID = "pact." + acmeLink + ".service"
-	after := moved(t, f, f.IssueKey(), store, map[string]string{"PACT_ROOT_KEY": testRootKey, "PACT_ROOT_KEY_PREVIOUS": older}, nil)
-	if sessionUser(after, b) != "u1" {
-		t.Fatal("a session of PACT_ROOT_KEY_PREVIOUS is not read")
-	}
-}
-
 func TestKeySealsAgainASessionOfCauthySecret(t *testing.T) {
 	f := cauthytest.New()
 	f.AppURLs = []string{"https://app.test"}
@@ -286,10 +166,10 @@ func TestKeySealsAgainASessionOfCauthySecret(t *testing.T) {
 	signIn(t, before, f, b, "u1")
 
 	key := f.IssueKey()
-	if !sessionCookieSet(moved(t, f, key, nil, map[string]string{"CAUTHY_SECRET": testSecret}, nil), b) {
+	if !sessionCookieSet(moved(t, f, key, map[string]string{"CAUTHY_SECRET": testSecret}, nil), b) {
 		t.Fatal("a session of CAUTHY_SECRET is not sealed again with the key when read")
 	}
-	if sessionUser(moved(t, f, key, nil, nil, nil), b) != "u1" {
+	if sessionUser(moved(t, f, key, nil, nil), b) != "u1" {
 		t.Fatal("the session is lost with CAUTHY_SECRET")
 	}
 }
@@ -298,7 +178,7 @@ func TestASessionCookieNoKeyOpensIsSaidOnce(t *testing.T) {
 	f := cauthytest.New()
 	f.AppURLs = []string{"https://app.test"}
 	var c counted
-	a := moved(t, f, f.IssueKey(), nil, nil, c.logger(t))
+	a := moved(t, f, f.IssueKey(), nil, c.logger(t))
 	b := cauthytest.NewBrowser("")
 	for range 2 {
 		b.Jar["cauthy_session.0"] = "eyJhbGciOiJkaXIiLCJlbmMiOiJBMjU2R0NNIn0..AAAA.BBBB.CCCC"
@@ -309,7 +189,42 @@ func TestASessionCookieNoKeyOpensIsSaidOnce(t *testing.T) {
 	if n := strings.Count(c.buf.String(), "no key of this application opens"); n != 1 {
 		t.Fatalf("said %d times: %s", n, c.buf.String())
 	}
-	if !strings.Contains(c.buf.String(), "PACT_ROOT_KEY_PREVIOUS") {
+	if !strings.Contains(c.buf.String(), "CAUTHY_KEY_PREVIOUS") {
 		t.Fatal(c.buf.String())
+	}
+}
+
+// otherKey is CAUTHY_KEY's issuer and client with another secret, registered.
+func otherKey(t *testing.T, f *cauthytest.Fake, key string) string {
+	t.Helper()
+	k, _ := cauthykey.Parse(key)
+	raw := make([]byte, 32)
+	_, _ = rand.Read(raw)
+	other, err := cauthykey.Compose(k.Issuer, k.ClientID, base64.RawURLEncoding.EncodeToString(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.RegisterKey(other); err != nil {
+		t.Fatal(err)
+	}
+	return other
+}
+
+// Contracts are retired: their secret opens nothing, and New says what to
+// do instead of starting without it.
+func TestPactRootKeyStopsTheStart(t *testing.T) {
+	f := cauthytest.New()
+	key := f.IssueKey()
+	for _, name := range []string{"PACT_ROOT_KEY", "PACT_ROOT_KEY_PREVIOUS"} {
+		for _, env := range []map[string]string{
+			{"CAUTHY_KEY": key, name: "acme-root-key-for-tests-only-0123456789"},
+			{"CAUTHY_ISSUER": "https://id.example.com", "CAUTHY_CLIENT_ID": "acme-crm", "CAUTHY_SECRET": testSecret, name: "acme-root-key-for-tests-only-0123456789"},
+		} {
+			_, err := New(Options{Getenv: envOf(env), HTTPClient: f.Client(), Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+			var ce *ConfigError
+			if !errors.As(err, &ce) || !strings.Contains(err.Error(), name+" is set, and contracts are retired: run on CAUTHY_KEY alone") {
+				t.Fatalf("%s: %v", name, err)
+			}
+		}
 	}
 }

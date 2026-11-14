@@ -80,7 +80,7 @@ func TestIdentityIsAskedWithTheSystemTokenAndKept(t *testing.T) {
 		t.Fatal(err)
 	}
 	if id.ClientID != "client_x" || id.Tenant.Slug != "acme" || id.Tenant.ID != "t1" || id.System != "acme-crm" ||
-		len(id.AppURLs) != 1 || id.Key == nil || id.Key.Kid != "k1" || id.Contract != nil {
+		len(id.AppURLs) != 1 || id.Key == nil || id.Key.Kid != "k1" {
 		t.Fatalf("%+v", id)
 	}
 	if _, err := s.Wait(context.Background()); err != nil {

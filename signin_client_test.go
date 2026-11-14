@@ -5,7 +5,6 @@ import (
 	"io"
 	"log/slog"
 	"net/url"
-	"strings"
 	"testing"
 	"time"
 
@@ -15,15 +14,22 @@ import (
 )
 
 // On CAUTHY_KEY people sign in through the client Cauthy names
-// (sign_in_client_id), which is not always the key's: an application once
-// connected by contract has its key on pact.<link>.service and its people,
-// and their refresh tokens, on pact.<link>.
+// (sign_in_client_id), which is not always the key's: the key may be on a
+// service client while the people, and their refresh tokens, are on a
+// public sign-in client.
 
-// detached is a fake where the key is the link's service client and Cauthy
-// names the link's sign-in client for it, as after contracts are retired.
+const (
+	keyClient    = "acme-crm-service"
+	signInClient = "acme-crm-web"
+)
+
+// detached is a fake whose key is on keyClient, and which names
+// signInClient as the client people sign in through.
 func detached() (*cauthytest.Fake, string) {
-	f, key := contractKey()
-	f.SignInClients[f.ClientID] = "pact." + acmeLink
+	f := cauthytest.New()
+	f.ClientID = keyClient
+	key := f.IssueKey()
+	f.SignInClients[f.ClientID] = signInClient
 	f.AppURLs = []string{"https://app.test"}
 	return f, key
 }
@@ -52,26 +58,26 @@ func TestSignInClientOtherThanTheKeys(t *testing.T) {
 	f, key := detached()
 	c := &clock{t: time.Now()}
 	a := keyAuthAt(t, f, key, c)
-	if a.ClientID() != "pact."+acmeLink {
+	if a.ClientID() != signInClient {
 		t.Fatalf("ClientID %s", a.ClientID())
 	}
 	b := cauthytest.NewBrowser("https://app.test")
 	res := b.Send(a, "GET", "/api/auth/login", nil)
 	loc, _ := url.Parse(res.Header.Get("Location"))
-	if loc.Query().Get("client_id") != "pact."+acmeLink {
+	if loc.Query().Get("client_id") != signInClient {
 		t.Fatalf("authorize as %s", loc.Query().Get("client_id"))
 	}
 	signIn(t, a, f, b, "u1")
 
 	// The code exchange: the link's public client, the system's proof, no assertion.
 	ex := callsOf(f, "/v1/oauth/token", "authorization_code")
-	if len(ex) != 1 || ex[0].Form.Get("client_id") != "pact."+acmeLink || ex[0].Form.Has("client_assertion") ||
+	if len(ex) != 1 || ex[0].Form.Get("client_id") != signInClient || ex[0].Form.Has("client_assertion") ||
 		ex[0].Form.Has("client_secret") || ex[0].Header.Get("X-Cauthy-System-Token") == "" {
 		t.Fatalf("exchange %+v", ex)
 	}
 	// The key still proves the key's own client.
 	cc := callsOf(f, "/v1/oauth/token", "client_credentials")
-	if len(cc) == 0 || cc[0].Form.Get("client_id") != "pact."+acmeLink+".service" || cc[0].Form.Get("client_assertion_type") != cauthykey.AssertionType {
+	if len(cc) == 0 || cc[0].Form.Get("client_id") != keyClient || cc[0].Form.Get("client_assertion_type") != cauthykey.AssertionType {
 		t.Fatalf("credentials %+v", cc)
 	}
 
@@ -82,7 +88,7 @@ func TestSignInClientOtherThanTheKeys(t *testing.T) {
 		t.Fatalf("%d %v", code, body)
 	}
 	rf := callsOf(f, "/v1/oauth/token", "refresh_token")
-	if len(rf) != 1 || rf[0].Form.Get("client_id") != "pact."+acmeLink || rf[0].Form.Has("client_assertion") {
+	if len(rf) != 1 || rf[0].Form.Get("client_id") != signInClient || rf[0].Form.Has("client_assertion") {
 		t.Fatalf("refresh %+v", rf)
 	}
 
@@ -90,12 +96,12 @@ func TestSignInClientOtherThanTheKeys(t *testing.T) {
 	out := b.Send(a, "GET", "/api/auth/logout", nil)
 	lo, _ := url.Parse(out.Header.Get("Location"))
 	rv := callsOf(f, "/v1/oauth/revoke", "")
-	if lo.Query().Get("client_id") != "pact."+acmeLink || len(rv) != 1 || rv[0].Form.Get("client_id") != "pact."+acmeLink ||
+	if lo.Query().Get("client_id") != signInClient || len(rv) != 1 || rv[0].Form.Get("client_id") != signInClient ||
 		rv[0].Form.Has("client_assertion") || len(f.Revoked()) != 1 {
 		t.Fatalf("logout %s %+v", out.Header.Get("Location"), rv)
 	}
 	acc := b.Send(a, "GET", "/api/auth/account", nil)
-	if l, _ := url.Parse(acc.Header.Get("Location")); l.Query().Get("client_id") != "pact."+acmeLink {
+	if l, _ := url.Parse(acc.Header.Get("Location")); l.Query().Get("client_id") != signInClient {
 		t.Fatalf("account %s", acc.Header.Get("Location"))
 	}
 }
@@ -120,36 +126,6 @@ func TestSignInClientSameAsTheKeysIsUnchanged(t *testing.T) {
 	}
 }
 
-// A session signed in by contract on CAUTHY_KEY is read and renewed on the
-// same key once the contract is removed: the cookie keys come from the key,
-// and the renewal goes through the link's sign-in client.
-func TestSessionByContractOnKeyOutlivesTheContract(t *testing.T) {
-	f, key := detached()
-	c := &clock{t: time.Now()}
-	before, err := New(Options{Contract: &Contract{Graph: acmeGraph(f, false), System: "acme-crm"}, Getenv: envOf(map[string]string{"CAUTHY_KEY": key}),
-		HTTPClient: f.Client(), Now: c.now, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
-	if err != nil {
-		t.Fatal(err)
-	}
-	b := cauthytest.NewBrowser("https://app.test")
-	signIn(t, before, f, b, "u1")
-
-	after := keyAuthAt(t, f, key, c)
-	res := b.Send(after, "GET", "/api/auth/session", nil)
-	if len(res.Header.Values("Set-Cookie")) != 0 {
-		t.Fatalf("sealed again: %v", res.Header.Values("Set-Cookie"))
-	}
-	c.add(time.Hour)
-	code, body := status(after, b, "GET", "/api/auth/session", nil)
-	if code != 200 || str(at(body, "session", "user", "id")) != "u1" {
-		t.Fatalf("%d %v", code, body)
-	}
-	rf := callsOf(f, "/v1/oauth/token", "refresh_token")
-	if len(rf) != 1 || rf[0].Form.Get("client_id") != "pact."+acmeLink {
-		t.Fatalf("refresh %+v", rf)
-	}
-}
-
 // Session, outside the handler, waits for Cauthy's answer before renewing:
 // a refresh token spent on the key's client would be lost.
 func TestSignInClientIsWaitedForBeforeARenewal(t *testing.T) {
@@ -164,7 +140,7 @@ func TestSignInClientIsWaitedForBeforeARenewal(t *testing.T) {
 		t.Fatalf("%+v", s)
 	}
 	rf := callsOf(f, "/v1/oauth/token", "refresh_token")
-	if len(rf) != 1 || rf[0].Form.Get("client_id") != "pact."+acmeLink {
+	if len(rf) != 1 || rf[0].Form.Get("client_id") != signInClient {
 		t.Fatalf("refresh %+v", rf)
 	}
 }
@@ -187,35 +163,14 @@ func TestVerifierFromKeyAcceptsTheSignInClientsTokens(t *testing.T) {
 		t.Fatal(err)
 	}
 	tok, err := jose.SignRS256(strong, map[string]any{"kid": "k", "typ": "JWT"}, map[string]any{
-		"iss": cfg.Issuer, "aud": []string{cfg.Audience}, "tid": cfg.Tenant, "sub": "5c1b2f4e-9a3d-4b7e-8c6f-0d1e2f3a4b5c", "azp": "pact." + acmeLink,
+		"iss": cfg.Issuer, "aud": []string{cfg.Audience}, "tid": cfg.Tenant, "sub": "5c1b2f4e-9a3d-4b7e-8c6f-0d1e2f3a4b5c", "azp": signInClient,
 		"iat": now.Unix() - 60, "exp": now.Unix() + 840,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	id, err := v.VerifyAt(context.Background(), tok, now)
-	if err != nil || id.AuthorizedParty != "pact."+acmeLink {
+	if err != nil || id.AuthorizedParty != signInClient {
 		t.Fatalf("%+v %v", id, err)
-	}
-}
-
-func TestTheContractOptionSaysOnceThatContractsAreRetired(t *testing.T) {
-	f, key := contractKey()
-	c := &counted{}
-	log := c.logger(t)
-	for range 2 {
-		if _, err := New(Options{Contract: &Contract{Graph: acmeGraph(f, false), System: "acme-crm"}, Getenv: envOf(map[string]string{"CAUTHY_KEY": key}),
-			HTTPClient: f.Client(), Logger: log}); err != nil {
-			t.Fatal(err)
-		}
-	}
-	var said []string
-	for _, l := range c.deprecations() {
-		if strings.Contains(l, "The Contract option is deprecated") {
-			said = append(said, l)
-		}
-	}
-	if len(said) != 1 || !strings.Contains(said[0], "Contracts are retired") || !strings.Contains(said[0], "same key keeps every session") {
-		t.Fatalf("%v", c.deprecations())
 	}
 }

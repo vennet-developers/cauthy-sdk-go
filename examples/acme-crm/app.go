@@ -16,9 +16,8 @@ import (
 // New is Acme CRM's router.
 func New(auth *cauthy.Auth) http.Handler {
 	r := chi.NewRouter()
-	// What `cauthy init` writes for chi: r.Handle("/api/auth/*", auth) and
-	// r.Handle(auth.JWKSPath(), auth). MountRouter does both, and the bare
-	// /api/auth too.
+	// What `cauthy init` writes for chi: r.Handle("/api/auth/*", auth).
+	// MountRouter does it, and the bare /api/auth too.
 	auth.MountRouter(r)
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")

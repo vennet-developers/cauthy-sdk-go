@@ -1,8 +1,6 @@
 // Command acme-crm is Acme CRM as a deployment runs it: on CAUTHY_KEY, the one
-// variable Cauthy's dashboard makes for the application. With
-// contracts/graph.json there, it runs by contract on the same key (no key
-// store); the variables of 1.1 and PACT_ROOT_KEY still work until 2.0, with
-// a deprecation warning.
+// variable Cauthy's dashboard makes for the application. The variables of
+// 1.1 still work until 2.0, with a deprecation warning.
 //
 //	CAUTHY_KEY=cauthy1.… go run ./cmd/acme-crm
 package main
@@ -17,13 +15,9 @@ import (
 )
 
 func main() {
-	var o cauthy.Options // reads CAUTHY_KEY
-	if graph, err := os.ReadFile("contracts/graph.json"); err == nil {
-		o.Contract = &cauthy.Contract{Graph: graph, System: "acme-crm"}
-	}
-	auth, err := cauthy.New(o)
+	auth, err := cauthy.New(cauthy.Options{}) // reads CAUTHY_KEY
 	if err != nil {
-		log.Fatal(err) // the key or the contract is wrong: never start without sign-in
+		log.Fatal(err) // a missing or damaged key: never start without sign-in
 	}
 	app := acme.New(auth)
 	if err := auth.CheckMount(app); err != nil {

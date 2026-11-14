@@ -53,11 +53,8 @@ func (a *Auth) saveAccount(r *http.Request, _ string, b map[string]any, p *perso
 	// The name is part of the session: the cookie says the new one at once.
 	rep := ok(map[string]any{"status": "saved", "account": accountOf(n.data)}, p.header)
 	if p.kept != nil {
-		again, err := a.toStored(r.Context(), map[string]any{"access_token": p.kept.AT, "refresh_token": p.kept.RT,
+		again := a.toStored(r.Context(), map[string]any{"access_token": p.kept.AT, "refresh_token": p.kept.RT,
 			"expires_in": float64(max(1, p.kept.Exp-a.now().Unix()))}, p.kept)
-		if rep := orUnverified(err); rep != nil {
-			return rep
-		}
 		if again != nil {
 			rep.with(a.write(r, again, readCookies(r))...)
 		}
@@ -91,10 +88,7 @@ func (a *Auth) changePassword(r *http.Request, _ string, b map[string]any, p *pe
 		return refusedWith(n, field, p.header)
 	}
 	had, was, _ := a.read(r)
-	next, err := a.toStored(r.Context(), n.data, was)
-	if rep := orUnverified(err); rep != nil {
-		return rep
-	}
+	next := a.toStored(r.Context(), n.data, was)
 	rep := ok(map[string]any{"status": "changed", "signedIn": next != nil}, nil)
 	if next != nil {
 		return rep.with(a.write(r, next, had)...)

@@ -88,9 +88,8 @@ type Fake struct {
 	// Default http://localhost:3000.
 	AppURLs []string
 	// SignInClients is the client people sign in through, by the key's
-	// client, as GET /v1/connect/self answers it (sign_in_client_id): an
-	// application once connected by contract has its key on
-	// pact.<link>.service and its people on pact.<link>. Absent: the key's
+	// client, as GET /v1/connect/self answers it (sign_in_client_id): the
+	// key may be on one client and the people on another. Absent: the key's
 	// own client. Set it before the fake serves.
 	SignInClients map[string]string
 
