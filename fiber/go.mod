@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/gofiber/fiber/v2 v2.52.16
-	github.com/vennet-developers/cauthy-sdk-go v1.0.0
+	github.com/vennet-developers/cauthy-sdk-go v1.2.1
 )
 
 require (
