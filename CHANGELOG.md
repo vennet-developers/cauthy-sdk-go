@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.3.1 — nothing left of contract mode
 
 ### Removed
 
